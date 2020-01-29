@@ -1,6 +1,8 @@
 #!/bin/bash
 FILE=./src/se/mitm/version/Version.java
 
+git describe --tags > /dev/null || exit
+
 GIT_TAG=`git describe --tags --long`
 DATE=`date +%m%d+%H%M`
 VERSION=$GIT_TAG"-"$DATE
@@ -16,6 +18,15 @@ public class Version {
 }" > $FILE
 
 echo 'version '$VERSION' >> '$FILE
+
+DOWN=./out/artifacts/mitm_downstream
+mkdir -p $DOWN
+cp -v $FILE $DOWN/.
+
+UP=./out/artifacts/mitm_upstream
+mkdir -p $UP
+cp -v $FILE $UP/.
+
 echo
 NR=`echo $VERSION | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
 git log --oneline --decorate --max-count $((NR +1))
