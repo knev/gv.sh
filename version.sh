@@ -19,11 +19,11 @@ public class Version {
 
 echo 'version '$VERSION' >> '$FILE
 
-DOWN=./out/artifacts/mitm_downstream
+DOWN=./obfuscate/out/mitm-downstream
 mkdir -p $DOWN
 cp -v $FILE $DOWN/.
 
-UP=./out/artifacts/mitm_upstream
+UP=./obfuscate/out/mitm-upstream
 mkdir -p $UP
 cp -v $FILE $UP/.
 
