@@ -1,15 +1,19 @@
 #!/bin/bash
-FILE=./src/se/mitm/base/Version.java
+FILE=./src/se/mitm/version/Version.java
 
 GIT_TAG=`git describe --tags --long`
 DATE=`date +%m%d+%H%M`
 VERSION=$GIT_TAG"-"$DATE
 
+printf "package se.mitm.version;
 
-printf "package se.mitm.base;\n\n" > $FILE
-printf "public class Version {\n" >> $FILE
-printf "\tpublic static final String commit= \"$VERSION\";\n" >> $FILE
-printf "}" >> $FILE
+public class Version {
+	public static final String commit= \"$VERSION\";
+
+	public static void main(String[] arraystringArgs) {
+		System.out.println(\"MiTM-of-minecraft: \" + commit);
+	}
+}" > $FILE
 
 echo 'version '$VERSION' >> '$FILE
 echo
