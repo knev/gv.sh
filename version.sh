@@ -24,11 +24,11 @@ public class Version {
 
 echo 'version '$VERSION' >> '$FILE
 
-DOWN=./obfuscate/out/mitm-downstream
+DOWN=./obfuscate/out/mim-downstream
 mkdir -p $DOWN
 cp -v $FILE $DOWN/. || exit 1
 
-UP=./obfuscate/out/mitm-upstream
+UP=./obfuscate/out/mim-upstream
 mkdir -p $UP
 cp -v $FILE $UP/. || exit 1
 
