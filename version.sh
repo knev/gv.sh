@@ -1,7 +1,10 @@
 #!/bin/bash
 FILE=./src/se/mitm/base/Version.java
 
-VERSION=`git describe --tags --long`
+GIT_TAG=`git describe --tags --long`
+DATE=`date +%m%d+%H%M`
+VERSION=$GIT_TAG"-"$DATE
+
 
 printf "package se.mitm.base;\n\n" > $FILE
 printf "public class Version {\n" >> $FILE
@@ -10,4 +13,5 @@ printf "}" >> $FILE
 
 echo 'version '$VERSION' >> '$FILE
 echo
-git log --oneline --decorate
+NR=`echo $VERSION | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
+git log --oneline --decorate --max-count $((NR +1))
