@@ -18,7 +18,7 @@ public class Version {
 	public static final String commit= \"$VERSION\";
 
 	public static void main(String[] arraystringArgs) {
-		System.out.println(\"MiTM-of-minecraft: \" + commit);
+		System.out.println(\"Man in the Middle of Minecraft (MiM): \" + commit);
 	}
 }" > $FILE
 
