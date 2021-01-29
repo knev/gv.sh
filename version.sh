@@ -1,6 +1,11 @@
 #!/bin/bash
-FILE=./src/se/mitm/version/Version.java
 
+# https://stackoverflow.com/questions/59895/how-to-get-the-source-directory-of-a-bash-script-from-within-the-script-itself
+# PWD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+FILE=./src/se/mitm/version/Version.java
+DIR="$( dirname $FILE )" 
+mkdir -p $DIR
 git describe --tags > /dev/null || exit
 
 GIT_TAG=`git describe --tags --long`
@@ -21,11 +26,11 @@ echo 'version '$VERSION' >> '$FILE
 
 DOWN=./obfuscate/out/mitm-downstream
 mkdir -p $DOWN
-cp -v $FILE $DOWN/.
+cp -v $FILE $DOWN/. || exit 1
 
 UP=./obfuscate/out/mitm-upstream
 mkdir -p $UP
-cp -v $FILE $UP/.
+cp -v $FILE $UP/. || exit 1
 
 echo
 NR=`echo $VERSION | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
