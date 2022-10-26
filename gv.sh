@@ -10,13 +10,19 @@ error_exit() {
 
 FILE=./src/se/mitm/version/Version.java
 
-PRINT=0
+PRINT=1
+JAVASCRIPT=0
+JAVA=0
 COLLECT=0
 OBF_OUT=./obfuscate/out
 OUT=$OBF_OUT
 while [ "$1" != "" ]; do
 	case $1 in
 		--print )				PRINT=1
+								;;
+		--js)					JAVASCRIPT=1
+								;;
+		--java)					JAVA=1
 								;;
 		--collect )				COLLECT=1
 								;;
@@ -56,35 +62,56 @@ collect()
 
 #--------------------------------------------------------------------------------------------------------------------------------
 
+GIT_TAG=`git describe --tags --long`
+
+if [[ $JAVASCRIPT == 1 ]]; then
+	FILE='package.json'
+
+	MAJOR_NR=`echo $GIT_TAG | sed 's/^v\([0-9]*\).[0-9]*-[0-9]*-.*/\1/g'`
+	MINOR_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.\([0-9]*\)-[0-9]*-.*/\1/g'`
+	BUILD_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
+	PLUS1=$((BUILD_NR +1))
+
+	NEWVER=$MAJOR_NR'.'$MINOR_NR'.'$PLUS1
+	# https://superuser.com/questions/112834/how-to-match-whitespace-in-sed/637913#637913
+	# https://stackoverflow.com/questions/7573368/in-place-edits-with-sed-on-os-x/7573438#7573438
+	sed -i '' 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'$NEWVER'\2/' ${FILE}
+fi
+
 if [[ $PRINT == 1 ]]; then
-	echo $FILE'= version '`cat $FILE | grep -m1 commit | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/' `
+	echo $GIT_TAG
+	if [[ $JAVASCRIPT == 1 ]]; then
+		echo -e $FILE'='`cat ${FILE} | grep -m1 version`'\n'
+	elif [[ $JAVA == 1 ]]; then
+		echo $FILE'= version '`cat $FILE | grep -m1 commit | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/' `
+	fi
 	exit 0
 fi
 
-if [[ $COLLECT == 1 ]]; then
-	collect || error_exit
-fi
+# if [[ $COLLECT == 1 ]]; then
+# 	collect || error_exit
+# fi
 
-DIR="$( dirname $FILE )" 
-mkdir -p $DIR
-git describe --tags > /dev/null || exit
+# DIR="$( dirname $FILE )" 
+# mkdir -p $DIR
+# git describe --tags > /dev/null || exit
 
-GIT_TAG=`git describe --tags --long`
-DATE=`date +%m%d+%H%M`
-VERSION=$GIT_TAG"-"$DATE
+# DATE=`date +%m%d+%H%M`
+# VERSION=$GIT_TAG"-"$DATE
 
-printf "package se.mitm.version;
+# printf "package se.mitm.version;
 
-public class Version {
-	public static final String commit= \"$VERSION\";
+# public class Version {
+# 	public static final String commit= \"$VERSION\";
 
-	public static void main(String[] arraystringArgs) {
-		System.out.println(\"Man in the Middle of Minecraft (MiM): \" + commit);
-	}
-}" > $FILE
+# 	public static void main(String[] arraystringArgs) {
+# 		System.out.println(\"Man in the Middle of Minecraft (MiM): \" + commit);
+# 	}
+# }" > $FILE
 
-echo 'version '$VERSION' >> '$FILE
+# echo 'version '$VERSION' >> '$FILE
 
-echo
-NR=`echo $VERSION | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
-git log --oneline --decorate --max-count $((NR +1))
+# echo
+# NR=`echo $VERSION | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
+# git log --oneline --decorate --max-count $((NR +1))
+

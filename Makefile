@@ -1,22 +1,28 @@
 
-JDK8 := $(shell /usr/libexec/java_home -v 1.8)
+# JDK8 := $(shell /usr/libexec/java_home -v 1.8)
+GV=gv.sh
+BIN=gv
 OUT= build
 
-.PHONY: nothing obf repo clean
+.PHONY: nothing install obf repo clean
 
 nothing:
 	@echo "usage: make ..."
 
-obf:
-	@./version.sh --collect --out $(OUT)
-	@echo "DONE!"
+# obf:
+# 	@./version.sh --collect --out $(OUT)
+# 	@echo "DONE!"
 
-repo:
-	#@git add ...
-	@git status --untracked-files=no
-	@echo
-	@./version.sh --print
+# repo:
+# 	#@git add ...
+# 	@git status --untracked-files=no
+# 	@echo
+# 	@./version.sh --print
 
-clean:
-	rm -rf $(OUT) src/se/mitm/version 
+install:
+	@cp -v ./${GV} ~/bin/${BIN}
+	chmod +x ~/bin/${BIN}
+
+# clean:
+# 	rm -rf $(OUT) src/se/mitm/version 
 
