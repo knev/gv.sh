@@ -69,8 +69,8 @@ if [[ $JAVASCRIPT == 1 ]]; then
 
 	MAJOR_NR=`echo $GIT_TAG | sed 's/^v\([0-9]*\).[0-9]*-[0-9]*-.*/\1/g'`
 	MINOR_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.\([0-9]*\)-[0-9]*-.*/\1/g'`
-	BUILD_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
-	PLUS1=$((BUILD_NR +1))
+	PATCH_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
+	PLUS1=$((PATCH_NR +1))
 
 	NEWVER=$MAJOR_NR'.'$MINOR_NR'.'$PLUS1
 	# https://superuser.com/questions/112834/how-to-match-whitespace-in-sed/637913#637913
