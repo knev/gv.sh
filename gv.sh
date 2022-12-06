@@ -12,6 +12,7 @@ FILE=./src/se/mitm/version/Version.java
 
 PRINT=1
 JAVASCRIPT=0
+APPLE_GENERIC_VER=0
 JAVA=0
 COLLECT=0
 OBF_OUT=./obfuscate/out
@@ -23,6 +24,8 @@ while [ "$1" != "" ]; do
 		--js)					JAVASCRIPT=1
 								;;
 		--java)					JAVA=1
+								;;
+		--agv)					APPLE_GENERIC_VER=1
 								;;
 		--collect )				COLLECT=1
 								;;
@@ -63,16 +66,15 @@ collect()
 #--------------------------------------------------------------------------------------------------------------------------------
 
 GIT_TAG=`git describe --tags --long`
+MAJOR_NR=`echo $GIT_TAG | sed 's/^v\([0-9]*\).[0-9]*-[0-9]*-.*/\1/g'`
+MINOR_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.\([0-9]*\)-[0-9]*-.*/\1/g'`
+PATCH_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
+PLUS1=$((PATCH_NR +1))
+NEWVER=$MAJOR_NR'.'$MINOR_NR'.'$PLUS1
 
 if [[ $JAVASCRIPT == 1 ]]; then
 	FILE='package.json'
 
-	MAJOR_NR=`echo $GIT_TAG | sed 's/^v\([0-9]*\).[0-9]*-[0-9]*-.*/\1/g'`
-	MINOR_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.\([0-9]*\)-[0-9]*-.*/\1/g'`
-	PATCH_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
-	PLUS1=$((PATCH_NR +1))
-
-	NEWVER=$MAJOR_NR'.'$MINOR_NR'.'$PLUS1
 	# https://superuser.com/questions/112834/how-to-match-whitespace-in-sed/637913#637913
 	# https://stackoverflow.com/questions/7573368/in-place-edits-with-sed-on-os-x/7573438#7573438
 	sed -i '' 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'$NEWVER'\2/' ${FILE}
@@ -85,7 +87,16 @@ if [[ $PRINT == 1 ]]; then
 	elif [[ $JAVA == 1 ]]; then
 		echo $FILE'= version '`cat $FILE | grep -m1 commit | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/' `
 	fi
-	exit 0
+fi
+
+if [[ $APPLE_GENERIC_VER == 1 ]]; then
+	#AGV=`agvtool what-version | grep "Found CFBundleShortVersionString" | sed 's/.*CFBundleShortVersionString of \"\([^"]*\)\".*/\1/' `
+	#AGV=`agvtool what-version | tail -n 2 | sed 's/[ ]*\(v[0-9]*.[0-9]*-[0-9]*-[[:alnum:]]*\).*$/\1/'`
+	#echo '['$AGV']'
+
+	# https://developer.apple.com/library/archive/qa/qa1827/_index.html
+	agvtool new-marketing-version $NEWVER		# set the short version
+	agvtool next-version -all					# update the build number, -all is required to update the Info.plist
 fi
 
 # if [[ $COLLECT == 1 ]]; then
