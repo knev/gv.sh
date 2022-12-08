@@ -94,6 +94,17 @@ if [[ $APPLE_GENERIC_VER == 1 ]]; then
 	#AGV=`agvtool what-version | tail -n 2 | sed 's/[ ]*\(v[0-9]*.[0-9]*-[0-9]*-[[:alnum:]]*\).*$/\1/'`
 	#echo '['$AGV']'
 
+	# In order for AGV to work ...
+	# Targets | Build Settings | Versioning 
+	#  - "Current Project Version" = set it to 0
+	#  - (optional?) "Versioning System" = Apple Generic
+	# Add an Info.plist 
+	#  - add "Bundle identifier" = $(PRODUCT_BUNDLE_IDENTIFIER) and add it in Settings ...
+	#  - add "Bundle version"
+	#  - add "Bundle version string (short)"
+	# this script will give the ERROR: Cannot find "$(SRCROOT)/Info.plist"
+	#  - edit the .xcodeproj/project.pbxproj file and remove [ $(SRCROOT)/ ], leaving just [ Info.plist ]
+
 	# https://developer.apple.com/library/archive/qa/qa1827/_index.html
 	agvtool new-marketing-version $NEWVER		# set the short version
 	agvtool next-version -all					# update the build number, -all is required to update the Info.plist
