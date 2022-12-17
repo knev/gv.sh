@@ -3,6 +3,11 @@
 # https://stackoverflow.com/questions/59895/how-to-get-the-source-directory-of-a-bash-script-from-within-the-script-itself
 # PWD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
+usage() {
+	echo "usage: $0 [[--js | --agv]] [[-h | --help]]"
+	echo
+}
+
 error_exit() {
 	echo "FAIL!"
 	exit 1
@@ -17,6 +22,7 @@ JAVA=0
 COLLECT=0
 OBF_OUT=./obfuscate/out
 OUT=$OBF_OUT
+HELP=0
 while [ "$1" != "" ]; do
 	case $1 in
 		--print )				PRINT=1
@@ -31,6 +37,9 @@ while [ "$1" != "" ]; do
 								;;
 		--out )					shift
 								OUT=$1
+								;;
+		-h | --help )			(( !$APPLE_GENERIC_VER )) && { usage && exit 0; }
+								HELP=1
 								;;
 		* )						exit 1
 	esac
@@ -72,7 +81,7 @@ PATCH_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
 PLUS1=$((PATCH_NR +1))
 NEWVER=$MAJOR_NR'.'$MINOR_NR'.'$PLUS1
 
-if [[ $JAVASCRIPT == 1 ]]; then
+if (( $JAVASCRIPT )); then
 	FILE='package.json'
 
 	# https://superuser.com/questions/112834/how-to-match-whitespace-in-sed/637913#637913
@@ -80,30 +89,37 @@ if [[ $JAVASCRIPT == 1 ]]; then
 	sed -i '' 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'$NEWVER'\2/' ${FILE}
 fi
 
-if [[ $PRINT == 1 ]]; then
+if (( $PRINT )); then
 	echo $GIT_TAG
-	if [[ $JAVASCRIPT == 1 ]]; then
+	if (( $JAVASCRIPT )); then
 		echo -e $FILE'='`cat ${FILE} | grep -m1 version`'\n'
-	elif [[ $JAVA == 1 ]]; then
+	elif (( $JAVA )); then
 		echo $FILE'= version '`cat $FILE | grep -m1 commit | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/' `
 	fi
 fi
 
-if [[ $APPLE_GENERIC_VER == 1 ]]; then
+if (( $APPLE_GENERIC_VER )); then
+
+	if (( $HELP )); then
+		echo
+		echo "In order for AGV to work ... "
+		echo "Targets | Build Settings | Versioning "
+		echo " - ""Current Project Version"" = set it to 0 "
+		echo " - (optional?) ""Versioning System"" = Apple Generic "
+		echo "Add an Info.plist "
+		echo " - add ""Bundle identifier"" "
+		echo " - add ""Bundle version"" "
+		echo " - add ""Bundle version string (short)"" "
+		echo "this script will give the ERROR: Cannot find ""\$(SRCROOT)/Info.plist"" "
+		echo " - edit the <PROJECT_NAME>.xcodeproj/project.pbxproj file and remove [ \$(SRCROOT)/ ], leaving just [ Info.plist ] "
+		echo
+
+		exit 0
+	fi
+
 	#AGV=`agvtool what-version | grep "Found CFBundleShortVersionString" | sed 's/.*CFBundleShortVersionString of \"\([^"]*\)\".*/\1/' `
 	#AGV=`agvtool what-version | tail -n 2 | sed 's/[ ]*\(v[0-9]*.[0-9]*-[0-9]*-[[:alnum:]]*\).*$/\1/'`
 	#echo '['$AGV']'
-
-	# In order for AGV to work ...
-	# Targets | Build Settings | Versioning 
-	#  - "Current Project Version" = set it to 0
-	#  - (optional?) "Versioning System" = Apple Generic
-	# Add an Info.plist 
-	#  - add "Bundle identifier" = $(PRODUCT_BUNDLE_IDENTIFIER) and add it in Settings ...
-	#  - add "Bundle version"
-	#  - add "Bundle version string (short)"
-	# this script will give the ERROR: Cannot find "$(SRCROOT)/Info.plist"
-	#  - edit the .xcodeproj/project.pbxproj file and remove [ $(SRCROOT)/ ], leaving just [ Info.plist ]
 
 	# https://developer.apple.com/library/archive/qa/qa1827/_index.html
 	agvtool new-marketing-version $NEWVER		# set the short version
