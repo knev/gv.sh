@@ -74,7 +74,7 @@ collect()
 
 #--------------------------------------------------------------------------------------------------------------------------------
 
-GIT_TAG=`git describe --tags --long`
+GIT_TAG=`git describe --tags --long --match v*`
 MAJOR_NR=`echo $GIT_TAG | sed 's/^v\([0-9]*\).[0-9]*-[0-9]*-.*/\1/g'`
 MINOR_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.\([0-9]*\)-[0-9]*-.*/\1/g'`
 PATCH_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
