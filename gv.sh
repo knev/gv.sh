@@ -41,7 +41,8 @@ while [ "$1" != "" ]; do
 		-h | --help )			(( !$APPLE_GENERIC_VER )) && { usage && exit 0; }
 								HELP=1
 								;;
-		* )						exit 1
+		* )						usage
+								exit 1
 	esac
 	shift
 done
