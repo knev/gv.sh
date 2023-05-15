@@ -4,7 +4,7 @@
 # PWD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 usage() {
-	echo "usage: $0 [[--js | --agv]] [[-h | --help]]"
+	echo "usage: $0 [--js] [--agv] [-h | --help]"
 	echo
 }
 
