@@ -4,7 +4,7 @@
 # PWD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 usage() {
-	echo "usage: $0 [--js] [--agv] [-h | --help]"
+	echo "usage: $0 [--js] [--agv [--fix]] [-h | --help]"
 	echo
 }
 
@@ -18,6 +18,7 @@ FILE=./src/se/mitm/version/Version.java
 PRINT=1
 JAVASCRIPT=0
 APPLE_GENERIC_VER=0
+FIX=0
 JAVA=0
 COLLECT=0
 OBF_OUT=./obfuscate/out
@@ -32,6 +33,8 @@ while [ "$1" != "" ]; do
 		--java)					JAVA=1
 								;;
 		--agv)					APPLE_GENERIC_VER=1
+								;;
+		--fix)					FIX=1
 								;;
 		--collect )				COLLECT=1
 								;;
@@ -118,13 +121,26 @@ if (( $APPLE_GENERIC_VER )); then
 		exit 0
 	fi
 
-	#AGV=`agvtool what-version | grep "Found CFBundleShortVersionString" | sed 's/.*CFBundleShortVersionString of \"\([^"]*\)\".*/\1/' `
-	#AGV=`agvtool what-version | tail -n 2 | sed 's/[ ]*\(v[0-9]*.[0-9]*-[0-9]*-[[:alnum:]]*\).*$/\1/'`
-	#echo '['$AGV']'
+	if (( $FIX )); then
+		PRJ_NAME=$(basename `find . -type d -name *.xcodeproj` .xcodeproj)
+		echo
+		echo $PRJ_NAME.xcodeproj/project.pbxproj:
+		echo "<<<<<<<"
+		grep "INFOPLIST_FILE" "$PRJ_NAME.xcodeproj/project.pbxproj" | sed -E 's/^[[:space:]]*/  /'
+		echo "======="
+		sed -i '' -E "s/([[:space:]]*)INFOPLIST_FILE[[:space:]]*=[[:space:]]*\"\\$\(SRCROOT\)\//\1INFOPLIST_FILE = \"/" $PRJ_NAME.xcodeproj/project.pbxproj
+		grep "INFOPLIST_FILE" "$PRJ_NAME.xcodeproj/project.pbxproj" | sed -E 's/^[[:space:]]*/  /'
+		echo ">>>>>>>" 
+	else
+		#AGV=`agvtool what-version | grep "Found CFBundleShortVersionString" | sed 's/.*CFBundleShortVersionString of \"\([^"]*\)\".*/\1/' `
+		#AGV=`agvtool what-version | tail -n 2 | sed 's/[ ]*\(v[0-9]*.[0-9]*-[0-9]*-[[:alnum:]]*\).*$/\1/'`
+		#echo '['$AGV']'
 
-	# https://developer.apple.com/library/archive/qa/qa1827/_index.html
-	agvtool new-marketing-version $NEWVER		# set the short version
-	agvtool next-version -all					# update the build number, -all is required to update the Info.plist
+		# https://developer.apple.com/library/archive/qa/qa1827/_index.html
+		agvtool new-marketing-version $NEWVER		# set the short version
+		agvtool next-version -all					# update the build number, -all is required to update the Info.plist
+	fi
+	
 fi
 
 # if [[ $COLLECT == 1 ]]; then
