@@ -122,7 +122,7 @@ if (( $APPLE_GENERIC_VER )); then
 	fi
 
 	if (( $FIX )); then
-		PRJ_NAME=$(basename `find . -type d -name *.xcodeproj` .xcodeproj)
+		PRJ_NAME=$(basename `find . -type d -name "*.xcodeproj"` .xcodeproj)
 		echo
 		echo $PRJ_NAME.xcodeproj/project.pbxproj:
 		echo "<<<<<<<"
