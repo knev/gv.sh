@@ -2,6 +2,8 @@
 
 # https://stackoverflow.com/questions/59895/how-to-get-the-source-directory-of-a-bash-script-from-within-the-script-itself
 # PWD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+# Use a Windows-compatible way to get the script's directory
+# PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
 	echo "usage: $0 [--js] [--agv [--fix]] [-h | --help]"
@@ -54,51 +56,51 @@ done
 
 collect()
 {
-	FILE_VERSION=`cat $FILE | grep -m1 commit | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/' | sed 's/\(v[0-9]*.[0-9]*-[0-9]*\)-.*$/\1/'`
-	mkdir -p $OUT/$FILE_VERSION || error_exit
+	FILE_VERSION=$(cat "$FILE" | grep -m1 commit | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/' | sed 's/\(v[0-9]*.[0-9]*-[0-9]*\)-.*$/\1/')
+	mkdir -p "$OUT/$FILE_VERSION" || error_exit
 	echo "OUT='$OUT/$FILE_VERSION'"
 
 	for SIDE in "down" "up"
 	do
-		MiM_VERSION=`java -classpath ./obfuscate/out/mim-$SIDE'stream'/mim-$SIDE'stream.jar' se.mitm.version.Version | sed 's/Man in the Middle of Minecraft (MiM): \(v[0-9]*.[0-9]*-[0-9]*\)-.*$/\1/'`
+		MiM_VERSION=$(java -classpath "./obfuscate/out/mim-${SIDE}stream/mim-${SIDE}stream.jar" se.mitm.version.Version | sed 's/Man in the Middle of Minecraft (MiM): \(v[0-9]*.[0-9]*-[0-9]*\)-.*$/\1/')
 		
-		[ $MiM_VERSION != $FILE_VERSION ] && { echo "Build version does not match Version file."; error_exit; }
+		[ "$MiM_VERSION" != "$FILE_VERSION" ] && { echo "Build version does not match Version file."; error_exit; }
 
-		cp -v $OBF_OUT/mim-$SIDE'stream'/mim-$SIDE'stream'.jar $OUT/$FILE_VERSION/. || error_exit
+		cp -v "$OBF_OUT/mim-${SIDE}stream/mim-${SIDE}stream.jar" "$OUT/$FILE_VERSION/." || error_exit
 
-		BASENAME=${FILE##*/}
-		cp -v $FILE $OUT/${BASENAME%.*}-mim-$SIDE'stream'.${BASENAME##*.} || exit 1
+		BASENAME=$(basename "$FILE")
+		cp -v "$FILE" "$OUT/${BASENAME%.*}-mim-${SIDE}stream.${BASENAME##*.}" || exit 1
 	done
 
-	cp -v ./res/patches/forge-broken-packets-no-lwjgl.patch $OUT/$FILE_VERSION/.
+	cp -v ./res/patches/forge-broken-packets-no-lwjgl.patch "$OUT/$FILE_VERSION/."
 
 	exit 0
 }
 
-
 #--------------------------------------------------------------------------------------------------------------------------------
 
-GIT_TAG=`git describe --tags --long --match v[0-9]*.[0-9]*`
-MAJOR_NR=`echo $GIT_TAG | sed 's/^v\([0-9]*\).[0-9]*-[0-9]*-.*/\1/g'`
-MINOR_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.\([0-9]*\)-[0-9]*-.*/\1/g'`
-PATCH_NR=`echo $GIT_TAG | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g'`
-PLUS1=$((PATCH_NR +1))
-NEWVER=$MAJOR_NR'.'$MINOR_NR'.'$PLUS1
+GIT_TAG=$(git describe --tags --long --match "v[0-9]*.[0-9]*")
+MAJOR_NR=$(echo "$GIT_TAG" | sed 's/^v\([0-9]*\).[0-9]*-[0-9]*-.*/\1/g')
+MINOR_NR=$(echo "$GIT_TAG" | sed 's/^v[0-9]*.\([0-9]*\)-[0-9]*-.*/\1/g')
+PATCH_NR=$(echo "$GIT_TAG" | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g')
+PLUS1=$((PATCH_NR + 1))
+NEWVER="$MAJOR_NR.$MINOR_NR.$PLUS1"
 
 if (( $JAVASCRIPT )); then
 	FILE='package.json'
 
 	# https://superuser.com/questions/112834/how-to-match-whitespace-in-sed/637913#637913
 	# https://stackoverflow.com/questions/7573368/in-place-edits-with-sed-on-os-x/7573438#7573438
-	sed -i '' 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'$NEWVER'\2/' ${FILE}
+	# Use sed without -i '' (not supported in Git Bash) and redirect to a temp file
+	sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEWVER"'\2/' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
 fi
 
 if (( $PRINT )); then
-	echo $GIT_TAG
+	echo "$GIT_TAG"
 	if (( $JAVASCRIPT )); then
-		echo -e $FILE'='`cat ${FILE} | grep -m1 version`'\n'
+		echo -e "$FILE=$(grep -m1 version "$FILE")\n"
 	elif (( $JAVA )); then
-		echo $FILE'= version '`cat $FILE | grep -m1 commit | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/' `
+		echo "$FILE= version $(grep -m1 commit "$FILE" | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/')"
 	fi
 fi
 
@@ -108,13 +110,13 @@ if (( $APPLE_GENERIC_VER )); then
 		echo
 		echo "In order for AGV to work ... "
 		echo "Targets | Build Settings | Versioning "
-		echo " - ""Current Project Version"" = set it to 0 "
-		echo " - (optional?) ""Versioning System"" = Apple Generic "
+		echo " - \"Current Project Version\" = set it to 0 "
+		echo " - (optional?) \"Versioning System\" = Apple Generic "
 		echo "Add an Info.plist "
-		echo " - add ""Bundle identifier"" "
-		echo " - add ""Bundle version"" "
-		echo " - add ""Bundle version string (short)"" "
-		echo "this script will give the ERROR: Cannot find ""\$(SRCROOT)/Info.plist"" "
+		echo " - add \"Bundle identifier\" "
+		echo " - add \"Bundle version\" "
+		echo " - add \"Bundle version string (short)\" "
+		echo "this script will give the ERROR: Cannot find \"\$(SRCROOT)/Info.plist\" "
 		echo " - edit the <PROJECT_NAME>.xcodeproj/project.pbxproj file and remove [ \$(SRCROOT)/ ], leaving just [ Info.plist ] "
 		echo
 
@@ -122,16 +124,20 @@ if (( $APPLE_GENERIC_VER )); then
 	fi
 
 	if (( $FIX )); then
-		PRJ_NAME=$(basename `find . -type d -name "*.xcodeproj"` .xcodeproj)
+		PRJ_NAME=$(basename "$(find . -type d -name "*.xcodeproj")" .xcodeproj)
 		echo
-		echo $PRJ_NAME.xcodeproj/project.pbxproj:
+		echo "$PRJ_NAME.xcodeproj/project.pbxproj:"
 		echo "<<<<<<<"
 		grep "INFOPLIST_FILE" "$PRJ_NAME.xcodeproj/project.pbxproj" | sed -E 's/^[[:space:]]*/  /'
 		echo "======="
-		sed -i '' -E "s/([[:space:]]*)INFOPLIST_FILE[[:space:]]*=[[:space:]]*\"\\$\(SRCROOT\)\//\1INFOPLIST_FILE = \"/" $PRJ_NAME.xcodeproj/project.pbxproj
+		sed 's/\([[:space:]]*\)INFOPLIST_FILE[[:space:]]*=[[:space:]]*"\$(SRCROOT)\//\1INFOPLIST_FILE = "/' "$PRJ_NAME.xcodeproj/project.pbxproj" > "$PRJ_NAME.xcodeproj/project.pbxproj.tmp" && mv "$PRJ_NAME.xcodeproj/project.pbxproj.tmp" "$PRJ_NAME.xcodeproj/project.pbxproj"
 		grep "INFOPLIST_FILE" "$PRJ_NAME.xcodeproj/project.pbxproj" | sed -E 's/^[[:space:]]*/  /'
-		echo ">>>>>>>" 
+		echo ">>>>>>>"
 	else
+		#TODO
+		# agvtool is macOS-specific and won't work on Windows/Git Bash
+		echo "Warning: agvtool is not available on Windows. Skipping Apple Generic Versioning commands."
+
 		#AGV=`agvtool what-version | grep "Found CFBundleShortVersionString" | sed 's/.*CFBundleShortVersionString of \"\([^"]*\)\".*/\1/' `
 		#AGV=`agvtool what-version | tail -n 2 | sed 's/[ ]*\(v[0-9]*.[0-9]*-[0-9]*-[[:alnum:]]*\).*$/\1/'`
 		#echo '['$AGV']'
