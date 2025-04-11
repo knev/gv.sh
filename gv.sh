@@ -117,7 +117,7 @@ fi
 
 if (( $PRINT )); then
 	echo "$GIT_TAG"
-	echo "-$EXTRA_GIT_TAG"
+	[ -n "$TAG" ] && echo "-$EXTRA_GIT_TAG"
 	if (( $JAVASCRIPT )); then
 		echo -e "$FILE=$(grep -m1 version "$FILE")\n"
 	elif (( $JAVA )); then
