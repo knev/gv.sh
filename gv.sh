@@ -28,6 +28,9 @@ OUT=$OBF_OUT
 HELP=0
 while [ "$1" != "" ]; do
 	case $1 in
+		--tag )					shift
+								TAG=$1
+								;;
 		--print )				PRINT=1
 								;;
 		--js)					JAVASCRIPT=1
@@ -80,6 +83,8 @@ collect()
 #--------------------------------------------------------------------------------------------------------------------------------
 
 GIT_TAG=$(git describe --tags --long --match "v[0-9]*.[0-9]*")
+[ -n "$TAG" ] && EXTRA_GIT_TAG=$(git tag --sort=-version:refname --list "$TAG.[0-9]*.[0-9]*" | head -n 1)
+
 MAJOR_NR=$(echo "$GIT_TAG" | sed 's/^v\([0-9]*\).[0-9]*-[0-9]*-.*/\1/g')
 MINOR_NR=$(echo "$GIT_TAG" | sed 's/^v[0-9]*.\([0-9]*\)-[0-9]*-.*/\1/g')
 PATCH_NR=$(echo "$GIT_TAG" | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g')
@@ -92,11 +97,27 @@ if (( $JAVASCRIPT )); then
 	# https://superuser.com/questions/112834/how-to-match-whitespace-in-sed/637913#637913
 	# https://stackoverflow.com/questions/7573368/in-place-edits-with-sed-on-os-x/7573438#7573438
 	# Use sed without -i '' (not supported in Git Bash) and redirect to a temp file
-	sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEWVER"'\2/' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+
+    # Extract current version from package.json
+    CURRENT_VERSION=$(grep -m1 '"version"' "$FILE" | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+    if [ -n "$EXTRA_GIT_TAG" ]; then
+        # If EXTRA_GIT_TAG is not empty, update to NEWVER-EXTRA_GIT_TAG
+        NEW_VERSION="$NEWVER-$EXTRA_GIT_TAG"
+        sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\(-[^"]*\)\?\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEW_VERSION"'\3/' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+    else
+        # If EXTRA_GIT_TAG is empty, check for extra tag in current version
+        if [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # No extra tag in current version, update to NEWVER
+            sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEWVER"'\2/' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+        fi
+        # If current version has an extra tag, do nothing
+    fi
 fi
 
 if (( $PRINT )); then
 	echo "$GIT_TAG"
+	echo "-$EXTRA_GIT_TAG"
 	if (( $JAVASCRIPT )); then
 		echo -e "$FILE=$(grep -m1 version "$FILE")\n"
 	elif (( $JAVA )); then
