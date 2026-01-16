@@ -6,10 +6,11 @@
 # PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-	echo "usage: $(basename $0) [--js|--java|--vs] [--agv [--fix]] [--tag TAG] [-h | --help]"
+	echo "usage: $(basename $0) [--js|--java|--vs] [--nsi] [--agv [--fix]] [--tag TAG] [-h | --help]"
 	echo
 	echo "Examples:"
 	echo "    gv --js --tag api // package.json=  \"version\": \"0.0.21-api.5\" "
+	echo "    gv --vs --nsi     // update both version.h and .nsi file simultaneously"
 	echo
 }
 
@@ -24,6 +25,7 @@ PRINT=1
 JAVASCRIPT=0
 JAVA=0
 VS=0
+NSI=0
 APPLE_GENERIC_VER=0
 FIX=0
 COLLECT=0
@@ -42,6 +44,8 @@ while [ "$1" != "" ]; do
 		--java)					JAVA=1
 								;;
 		--vs)					VS=1
+								;;
+		--nsi)					NSI=1
 								;;
 		--agv)					APPLE_GENERIC_VER=1
 								;;
@@ -197,7 +201,7 @@ if (( $VS )); then
     fi
 
     # Backup first (good practice)
-    echo "Updating version.h → $NEWVER${SUFFIX}"
+    echo "Updating version.h [$NEWVER${SUFFIX}]"
 
     cp "$VERSION_H" "$VERSION_H.bak" || exit 1
 
@@ -245,6 +249,58 @@ if (( $VS )); then
 
     echo "version.h updated:"
     grep -E 'VERSION_(MAJOR|MINOR|PATCH|BUILD|SUFFIX)' "$VERSION_H" | sed 's/^/  /'
+fi
+
+#─────────────────────────────────────────────────────────────
+# --nsi : Update !define APP_VERSION in the main .nsi file
+#─────────────────────────────────────────────────────────────
+
+if (( $NSI )); then
+    CURRENT_DIR=$(pwd)
+    TOP_DIR=$(basename "$CURRENT_DIR")
+    TOP_DIR_CLEAN="${TOP_DIR%.git}"
+    NSI_FILE="${TOP_DIR_CLEAN}.nsi"
+
+    # Check if file exists in current directory
+    if [ ! -f "$NSI_FILE" ]; then
+        echo "Error: Could not find ${NSI_FILE} in current directory ($(pwd))"
+        echo "Expected file: ${NSI_FILE}"
+        exit 1
+    fi
+
+    FULL_VERSION="${NEWVER}"
+    [ -n "$TAG" ] && FULL_VERSION="${FULL_VERSION}-${TAG}"
+
+	echo
+    echo "Updating ${NSI_FILE} APP_VERSION [${FULL_VERSION}]"
+
+    # Backup first
+    cp "$NSI_FILE" "${NSI_FILE}.bak" || exit 1
+
+    # Update or add the APP_VERSION define
+    if grep -q "^[[:space:]]*![[:space:]]*define[[:space:]]\+APP_VERSION" "$NSI_FILE"; then
+        # Replace existing line
+        sed -i.bak \
+            "s|^[[:space:]]*![[:space:]]*define[[:space:]]\+APP_VERSION[[:space:]]*\"[^\"]*\".*$|!define APP_VERSION \"${FULL_VERSION}\"|" \
+            "$NSI_FILE"
+    else
+        # Add new line after the last !define (or at the beginning)
+        echo "Warning: No existing APP_VERSION found; adding new line"
+		return
+#         sed -i.bak \
+#             "/^!define/a\\
+# !define APP_VERSION \"${FULL_VERSION}\"" \
+#             "$NSI_FILE"
+    fi
+
+    # Optional: clean up backup files (macOS/Git Bash style)
+    rm -f "${NSI_FILE}.bak"*
+
+	grep -i "APP_VERSION" "$NSI_FILE" | grep -i "!define" || echo "(line not found after update)"
+
+    # Optional: show context (last few lines with defines)
+    # echo "Nearby defines:"
+    # grep -A 6 -B 6 -E "^[[:space:]]*![[:space:]]*define" "$NSI_FILE" | sed 's/^/  /'
 fi
 
 # if [[ $COLLECT == 1 ]]; then
