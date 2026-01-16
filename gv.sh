@@ -182,7 +182,7 @@ fi
 #─────────────────────────────────────────────────────────────
 
 if (( $VS )); then
-    VERSION_H="./version.h"          # ← Change this path if needed!
+    VERSION_H="./version.h"          # Change this path if needed!
 
     if [ ! -f "$VERSION_H" ]; then
         echo "Error: version.h not found at $VERSION_H"
@@ -190,9 +190,15 @@ if (( $VS )); then
     fi
 
 	echo
-    echo "Updating version.h → $NEWVER${EXTRA_GIT_TAG:+"-$EXTRA_GIT_TAG"}"
+    if [ -n "$TAG" ]; then
+        SUFFIX="-$TAG"
+    else
+        SUFFIX=""
+    fi
 
     # Backup first (good practice)
+    echo "Updating version.h → $NEWVER${SUFFIX}"
+
     cp "$VERSION_H" "$VERSION_H.bak" || exit 1
 
     # Update MAJOR / MINOR / PATCH
@@ -212,18 +218,33 @@ if (( $VS )); then
         -e 's/^#define[[:space:]]\+VERSION_BUILD[[:space:]]\+[0-9]\+/#define VERSION_BUILD     0/' \
         "$VERSION_H"
 
-    # Optional: add a comment with the full tag / date
+    # Update or add VERSION_SUFFIX
+    if grep -q "^#define[[:space:]]\+VERSION_SUFFIX" "$VERSION_H"; then
+        # Exists; update
+        sed -i.bak \
+            -e "s/^#define[[:space:]]\+VERSION_SUFFIX[[:space:]]\+\".*\"/#define VERSION_SUFFIX    \"$SUFFIX\"/" \
+            "$VERSION_H"
+    else
+        # Doesn't exist; add after VERSION_BUILD
+        sed -i.bak \
+            "/#define[[:space:]]\+VERSION_BUILD/a\\
+#define VERSION_SUFFIX      \"$SUFFIX\"" \
+            "$VERSION_H"
+    fi
+
+    # Optional: nice comment with update info
     DATE=$(date +"%Y-%m-%d %H:%M")
     sed -i.bak \
-        -e "/#define[[:space:]]\+VERSION_BUILD/a\\
-/* Updated to $NEWVER${EXTRA_GIT_TAG:+"-$EXTRA_GIT_TAG"} on $DATE */" \
+        -e '/\/\*.*Updated to/d' \
+        -e "/#define[[:space:]]\+VERSION_SUFFIX/a\\
+/* Updated to $NEWVER${SUFFIX} on $DATE */" \
         "$VERSION_H"
 
     # Clean up backup files created by sed -i.bak (macOS & some Linux)
     rm -f "${VERSION_H}.bak"
 
     echo "version.h updated:"
-    grep -E 'VERSION_(MAJOR|MINOR|PATCH|BUILD)' "$VERSION_H"
+    grep -E 'VERSION_(MAJOR|MINOR|PATCH|BUILD|SUFFIX)' "$VERSION_H" | sed 's/^/  /'
 fi
 
 # if [[ $COLLECT == 1 ]]; then
