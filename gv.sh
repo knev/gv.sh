@@ -6,7 +6,7 @@
 # PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-	echo "usage: $(basename $0) [--js] [--agv [--fix]] [--tag TAG] [-h | --help]"
+	echo "usage: $(basename $0) [--js|--java|--vs] [--agv [--fix]] [--tag TAG] [-h | --help]"
 	echo
 	echo "Examples:"
 	echo "    gv --js --tag api // package.json=  \"version\": \"0.0.21-api.5\" "
@@ -22,9 +22,10 @@ FILE=./src/se/mitm/version/Version.java
 
 PRINT=1
 JAVASCRIPT=0
+JAVA=0
+VS=0
 APPLE_GENERIC_VER=0
 FIX=0
-JAVA=0
 COLLECT=0
 OBF_OUT=./obfuscate/out
 OUT=$OBF_OUT
@@ -39,6 +40,8 @@ while [ "$1" != "" ]; do
 		--js)					JAVASCRIPT=1
 								;;
 		--java)					JAVA=1
+								;;
+		--vs)					VS=1
 								;;
 		--agv)					APPLE_GENERIC_VER=1
 								;;
@@ -172,6 +175,55 @@ if (( $APPLE_GENERIC_VER )); then
 		agvtool next-version -all					# update the build number, -all is required to update the Info.plist
 	fi
 	
+fi
+
+#─────────────────────────────────────────────────────────────
+# --vs : Update version.h for Visual Studio C++ project
+#─────────────────────────────────────────────────────────────
+
+if (( $VS )); then
+    VERSION_H="./version.h"          # ← Change this path if needed!
+
+    if [ ! -f "$VERSION_H" ]; then
+        echo "Error: version.h not found at $VERSION_H"
+        exit 1
+    fi
+
+	echo
+    echo "Updating version.h → $NEWVER${EXTRA_GIT_TAG:+"-$EXTRA_GIT_TAG"}"
+
+    # Backup first (good practice)
+    cp "$VERSION_H" "$VERSION_H.bak" || exit 1
+
+    # Update MAJOR / MINOR / PATCH
+    sed -i.bak \
+        -e "s/^#define[[:space:]]\+VERSION_MAJOR[[:space:]]\+[0-9]\+/#define VERSION_MAJOR     $MAJOR_NR/" \
+        -e "s/^#define[[:space:]]\+VERSION_MINOR[[:space:]]\+[0-9]\+/#define VERSION_MINOR     $MINOR_NR/" \
+        -e "s/^#define[[:space:]]\+VERSION_PATCH[[:space:]]\+[0-9]\+/#define VERSION_PATCH     $PLUS1/" \
+        "$VERSION_H"
+
+    # Decide what to do with VERSION_BUILD
+    # Option 1: Always reset to 0 on version bump (most common for semver style)
+    # Option 2: Increment current build number (like CI build counter)
+    # Option 3: Use git commit count or date-based
+
+    # Recommended: reset to 0 + optional suffix in comment or string
+    sed -i.bak \
+        -e 's/^#define[[:space:]]\+VERSION_BUILD[[:space:]]\+[0-9]\+/#define VERSION_BUILD     0/' \
+        "$VERSION_H"
+
+    # Optional: add a comment with the full tag / date
+    DATE=$(date +"%Y-%m-%d %H:%M")
+    sed -i.bak \
+        -e "/#define[[:space:]]\+VERSION_BUILD/a\\
+/* Updated to $NEWVER${EXTRA_GIT_TAG:+"-$EXTRA_GIT_TAG"} on $DATE */" \
+        "$VERSION_H"
+
+    # Clean up backup files created by sed -i.bak (macOS & some Linux)
+    rm -f "${VERSION_H}.bak"
+
+    echo "version.h updated:"
+    grep -E 'VERSION_(MAJOR|MINOR|PATCH|BUILD)' "$VERSION_H"
 fi
 
 # if [[ $COLLECT == 1 ]]; then
