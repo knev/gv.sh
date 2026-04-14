@@ -123,15 +123,23 @@ if (( $JAVASCRIPT )) || { (( $AUTO )) && [ -f "package.json" ]; }; then
     # Extract current version from package.json
     CURRENT_VERSION=$(grep -m1 '"version"' "$JS_FILE" | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
 
+	echo
+
     if [ -n "$EXTRA_GIT_TAG" ]; then
         # If EXTRA_GIT_TAG is not empty, update to NEWVER-EXTRA_GIT_TAG
         NEWVER_DASH_TAG="$NEWVER-$EXTRA_GIT_TAG"
         sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\(-[^"]*\)\?\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEWVER_DASH_TAG"'\3/' "$JS_FILE" > "$JS_FILE.tmp" && mv "$JS_FILE.tmp" "$JS_FILE"
+
+		echo "package.json updated: {"
+		echo -e "$(grep -m1 version "package.json")\n}"
     else
         # If EXTRA_GIT_TAG is empty, check for extra tag in current version
         if [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             # No extra tag in current version, update to NEWVER
             sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEWVER"'\2/' "$JS_FILE" > "$JS_FILE.tmp" && mv "$JS_FILE.tmp" "$JS_FILE"
+
+    		echo "package.json updated: {"
+			echo -e "$(grep -m1 version "package.json")\n}"
         fi
         # If current version has an extra tag, do nothing
     fi
