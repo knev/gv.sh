@@ -21,6 +21,8 @@ error_exit() {
 
 FILE=./src/se/mitm/version/Version.java
 
+AUTO=0
+
 PRINT=1
 JAVASCRIPT=0
 JAVA=0
@@ -38,6 +40,8 @@ while [ "$1" != "" ]; do
 								TAG=$1
 								;;
 		--print )				PRINT=1
+								;;
+		-a)						AUTO=1
 								;;
 		--js)					JAVASCRIPT=1
 								;;
@@ -96,45 +100,46 @@ GIT_TAG=$(git describe --tags --long --match "v[0-9]*.[0-9]*")
 # [ -n "$TAG" ] && EXTRA_GIT_TAG=$(git tag --sort=-version:refname --list "$TAG.[0-9]*.[0-9]*" | head -n 1)
 [ -n "$TAG" ] && EXTRA_GIT_TAG=$(git tag --sort=-version:refname --list "$TAG.[0-9]*" "$TAG.[0-9]*.[0-9]*" | head -n 1)
 
+if (( $PRINT )); then
+	echo "$GIT_TAG"
+	[ -n "$TAG" ] && echo "-$EXTRA_GIT_TAG"
+fi
+
 MAJOR_NR=$(echo "$GIT_TAG" | sed 's/^v\([0-9]*\).[0-9]*-[0-9]*-.*/\1/g')
 MINOR_NR=$(echo "$GIT_TAG" | sed 's/^v[0-9]*.\([0-9]*\)-[0-9]*-.*/\1/g')
 PATCH_NR=$(echo "$GIT_TAG" | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g')
 PLUS1=$((PATCH_NR + 1))
 NEWVER="$MAJOR_NR.$MINOR_NR.$PLUS1"
 
-if (( $JAVASCRIPT )); then
-	FILE='package.json'
+JS_FILE='package.json'
+
+if (( $JAVASCRIPT )) || { (( $AUTO )) && [ -f "package.json" ]; }; then
+	JS_FILE='package.json'
 
 	# https://superuser.com/questions/112834/how-to-match-whitespace-in-sed/637913#637913
 	# https://stackoverflow.com/questions/7573368/in-place-edits-with-sed-on-os-x/7573438#7573438
 	# Use sed without -i '' (not supported in Git Bash) and redirect to a temp file
 
     # Extract current version from package.json
-    CURRENT_VERSION=$(grep -m1 '"version"' "$FILE" | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+    CURRENT_VERSION=$(grep -m1 '"version"' "$JS_FILE" | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
 
     if [ -n "$EXTRA_GIT_TAG" ]; then
         # If EXTRA_GIT_TAG is not empty, update to NEWVER-EXTRA_GIT_TAG
-        NEW_VERSION="$NEWVER-$EXTRA_GIT_TAG"
-        sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\(-[^"]*\)\?\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEW_VERSION"'\3/' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+        NEWVER_DASH_TAG="$NEWVER-$EXTRA_GIT_TAG"
+        sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\(-[^"]*\)\?\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEWVER_DASH_TAG"'\3/' "$JS_FILE" > "$JS_FILE.tmp" && mv "$JS_FILE.tmp" "$JS_FILE"
     else
         # If EXTRA_GIT_TAG is empty, check for extra tag in current version
         if [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             # No extra tag in current version, update to NEWVER
-            sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEWVER"'\2/' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+            sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEWVER"'\2/' "$JS_FILE" > "$JS_FILE.tmp" && mv "$JS_FILE.tmp" "$JS_FILE"
         fi
         # If current version has an extra tag, do nothing
     fi
 fi
 
-if (( $PRINT )); then
-	echo "$GIT_TAG"
-	[ -n "$TAG" ] && echo "-$EXTRA_GIT_TAG"
-	if (( $JAVASCRIPT )); then
-		echo -e "$FILE=$(grep -m1 version "$FILE")\n"
-	elif (( $JAVA )); then
-		echo "$FILE= version $(grep -m1 commit "$FILE" | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/')"
-	fi
-fi
+	# elif (( $JAVA )); then
+	# 	echo "$JS_FILE= version $(grep -m1 commit "$JS_FILE" | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/')"
+	# fi
 
 if (( $APPLE_GENERIC_VER )); then
 
@@ -185,8 +190,9 @@ fi
 # --vs : Update version.h for Visual Studio C++ project
 #─────────────────────────────────────────────────────────────
 
-if (( $VS )); then
-    VERSION_H="./version.h"          # Change this path if needed!
+VERSION_H="./version.h"             # Change this path if needed!
+
+if (( $VS )) || { (( $AUTO )) && [ -f "$VERSION_H" ]; }; then
 
     if [ ! -f "$VERSION_H" ]; then
         echo "Error: version.h not found at $VERSION_H"
@@ -255,11 +261,12 @@ fi
 # --nsi : Update !define APP_VERSION in the main .nsi file
 #─────────────────────────────────────────────────────────────
 
-if (( $NSI )); then
-    CURRENT_DIR=$(pwd)
-    TOP_DIR=$(basename "$CURRENT_DIR")
-    TOP_DIR_CLEAN="${TOP_DIR%.git}"
-    NSI_FILE="${TOP_DIR_CLEAN}.nsi"
+CURRENT_DIR=$(pwd)
+TOP_DIR=$(basename "$CURRENT_DIR")
+TOP_DIR_CLEAN="${TOP_DIR%.git}"
+NSI_FILE="${TOP_DIR_CLEAN}.nsi"
+
+if (( $NSI )) || { (( $AUTO )) && [ -f "$NSI_FILE" ]; }; then
 
     # Check if file exists in current directory
     if [ ! -f "$NSI_FILE" ]; then
