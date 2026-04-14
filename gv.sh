@@ -25,7 +25,7 @@ AUTO=0
 
 PRINT=1
 JAVASCRIPT=0
-JAVA=0
+# JAVA=0
 VS=0
 NSI=0
 ANTORA=0
@@ -46,8 +46,8 @@ while [ "$1" != "" ]; do
 								;;
 		--js)					JAVASCRIPT=1
 								;;
-		--java)					JAVA=1
-								;;
+		# --java)				JAVA=1
+		# 						;;
 		--vs)					VS=1
 								;;
 		--nsi)					NSI=1
