@@ -28,6 +28,7 @@ JAVASCRIPT=0
 JAVA=0
 VS=0
 NSI=0
+ANTORA=0
 APPLE_GENERIC_VER=0
 FIX=0
 COLLECT=0
@@ -50,6 +51,8 @@ while [ "$1" != "" ]; do
 		--vs)					VS=1
 								;;
 		--nsi)					NSI=1
+								;;
+		--antora)				ANTORA=1
 								;;
 		--agv)					APPLE_GENERIC_VER=1
 								;;
@@ -316,6 +319,36 @@ if (( $NSI )) || { (( $AUTO )) && [ -f "$NSI_FILE" ]; }; then
     # Optional: show context (last few lines with defines)
     # echo "Nearby defines:"
     # grep -A 6 -B 6 -E "^[[:space:]]*![[:space:]]*define" "$NSI_FILE" | sed 's/^/  /'
+fi
+
+#─────────────────────────────────────────────────────────────
+# --antora : Update version in antora-docs/antora.yml
+#─────────────────────────────────────────────────────────────
+
+ANTORA_FILE="./antora-docs/antora.yml"
+
+if (( $ANTORA )) || { (( $AUTO )) && [ -f "$ANTORA_FILE" ]; }; then
+
+    if [ ! -f "$ANTORA_FILE" ]; then
+        echo "Error: antora.yml not found at $ANTORA_FILE"
+        exit 1
+    fi
+
+    FULL_VERSION="${NEWVER}"
+    [ -n "$TAG" ] && FULL_VERSION="${FULL_VERSION}-${TAG}"
+
+    echo
+    echo "Updating ${ANTORA_FILE} version [${FULL_VERSION}]"
+
+    cp "$ANTORA_FILE" "${ANTORA_FILE}.bak" || exit 1
+
+    sed -i.bak \
+        "s/^version:[[:space:]]*['\"][^'\"]*['\"]/version: '${FULL_VERSION}'/" \
+        "$ANTORA_FILE"
+
+    rm -f "${ANTORA_FILE}.bak"
+
+    grep "^version:" "$ANTORA_FILE" | sed 's/^/  /'
 fi
 
 # if [[ $COLLECT == 1 ]]; then
