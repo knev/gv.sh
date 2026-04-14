@@ -6,7 +6,7 @@
 # PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-	echo "usage: $(basename $0) [--js|--java|--vs] [--nsi] [--agv [--fix]] [--tag TAG] [-h | --help]"
+	echo "usage: $(basename $0) [-a] [--js|--java|--vs] [--nsi] [--antora] [--agv [--fix]] [--tag TAG] [-h | --help]"
 	echo
 	echo "Examples:"
 	echo "    gv --js --tag api // package.json=  \"version\": \"0.0.21-api.5\" "
