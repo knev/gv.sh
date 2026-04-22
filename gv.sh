@@ -223,10 +223,10 @@ if (( $VS )) || { (( $AUTO )) && [ -f "$VERSION_H" ]; }; then
     cp "$VERSION_H" "$VERSION_H.bak" || exit 1
 
     # Update MAJOR / MINOR / PATCH
-    sed -i.bak \
-        -e "s/^#define[[:space:]]\+VERSION_MAJOR[[:space:]]\+[0-9]\+/#define VERSION_MAJOR     $MAJOR_NR/" \
-        -e "s/^#define[[:space:]]\+VERSION_MINOR[[:space:]]\+[0-9]\+/#define VERSION_MINOR     $MINOR_NR/" \
-        -e "s/^#define[[:space:]]\+VERSION_PATCH[[:space:]]\+[0-9]\+/#define VERSION_PATCH     $PLUS1/" \
+    sed -E -i.bak \
+        -e "s/^#define[[:space:]]+VERSION_MAJOR[[:space:]]+[0-9]+/#define VERSION_MAJOR     $MAJOR_NR/" \
+        -e "s/^#define[[:space:]]+VERSION_MINOR[[:space:]]+[0-9]+/#define VERSION_MINOR     $MINOR_NR/" \
+        -e "s/^#define[[:space:]]+VERSION_PATCH[[:space:]]+[0-9]+/#define VERSION_PATCH     $PLUS1/" \
         "$VERSION_H"
 
     # Decide what to do with VERSION_BUILD
@@ -235,29 +235,29 @@ if (( $VS )) || { (( $AUTO )) && [ -f "$VERSION_H" ]; }; then
     # Option 3: Use git commit count or date-based
 
     # Recommended: reset to 0 + optional suffix in comment or string
-    sed -i.bak \
-        -e 's/^#define[[:space:]]\+VERSION_BUILD[[:space:]]\+[0-9]\+/#define VERSION_BUILD     0/' \
+    sed -E -i.bak \
+        -e 's/^#define[[:space:]]+VERSION_BUILD[[:space:]]+[0-9]+/#define VERSION_BUILD     0/' \
         "$VERSION_H"
 
     # Update or add VERSION_SUFFIX
-    if grep -q "^#define[[:space:]]\+VERSION_SUFFIX" "$VERSION_H"; then
+    if grep -qE "^#define[[:space:]]+VERSION_SUFFIX" "$VERSION_H"; then
         # Exists; update
-        sed -i.bak \
-            -e "s/^#define[[:space:]]\+VERSION_SUFFIX[[:space:]]\+\".*\"/#define VERSION_SUFFIX    \"$SUFFIX\"/" \
+        sed -E -i.bak \
+            -e "s/^#define[[:space:]]+VERSION_SUFFIX[[:space:]]+\".*\"/#define VERSION_SUFFIX    \"$SUFFIX\"/" \
             "$VERSION_H"
     else
         # Doesn't exist; add after VERSION_BUILD
-        sed -i.bak \
-            "/#define[[:space:]]\+VERSION_BUILD/a\\
+        sed -E -i.bak \
+            "/#define[[:space:]]+VERSION_BUILD/a\\
 #define VERSION_SUFFIX      \"$SUFFIX\"" \
             "$VERSION_H"
     fi
 
     # Optional: nice comment with update info
     DATE=$(date +"%Y-%m-%d %H:%M")
-    sed -i.bak \
+    sed -E -i.bak \
         -e '/\/\*.*Updated to/d' \
-        -e "/#define[[:space:]]\+VERSION_SUFFIX/a\\
+        -e "/#define[[:space:]]+VERSION_SUFFIX/a\\
 /* Updated to $NEWVER${SUFFIX} on $DATE */" \
         "$VERSION_H"
 
@@ -296,10 +296,10 @@ if (( $NSI )) || { (( $AUTO )) && [ -f "$NSI_FILE" ]; }; then
     cp "$NSI_FILE" "${NSI_FILE}.bak" || exit 1
 
     # Update or add the APP_VERSION define
-    if grep -q "^[[:space:]]*![[:space:]]*define[[:space:]]\+APP_VERSION" "$NSI_FILE"; then
+    if grep -qE "^[[:space:]]*![[:space:]]*define[[:space:]]+APP_VERSION" "$NSI_FILE"; then
         # Replace existing line
-        sed -i.bak \
-            "s|^[[:space:]]*![[:space:]]*define[[:space:]]\+APP_VERSION[[:space:]]*\"[^\"]*\".*$|!define APP_VERSION \"${FULL_VERSION}\"|" \
+        sed -E -i.bak \
+            "s|^[[:space:]]*![[:space:]]*define[[:space:]]+APP_VERSION[[:space:]]*\"[^\"]*\".*$|!define APP_VERSION \"${FULL_VERSION}\"|" \
             "$NSI_FILE"
     else
         # Add new line after the last !define (or at the beginning)

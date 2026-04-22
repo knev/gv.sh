@@ -190,14 +190,14 @@ cleanup
 
 mk_package_json
 mk_nsi
-run_test "$GV_BIN -a" "0" "package.json updated:.*Updating gv.nsi"
+run_test "$GV_BIN -a" "0" "package.json updated:.*Updating gv.sh.nsi"
 cleanup
 
 mk_package_json
 mk_version_h
 mk_nsi
 mk_antora
-run_test "$GV_BIN -a" "0" "package.json updated:.*version.h updated:.*Updating gv.nsi.*Updating.*antora.yml"
+run_test "$GV_BIN -a" "0" "package.json updated:.*version.h updated:.*Updating gv.sh.nsi.*Updating.*antora.yml"
 cleanup
 
 # Explicit --vs with both version.h and package.json present:
@@ -217,7 +217,7 @@ cleanup
 # --vs + --nsi: both files updated in one run
 mk_version_h
 mk_nsi
-run_test "$GV_BIN --vs --nsi" "0" "version.h updated:.*Updating gv.nsi"
+run_test "$GV_BIN --vs --nsi" "0" "version.h updated:.*Updating gv.sh.nsi"
 cleanup
 
 # --js + --antora: both files updated in one run
