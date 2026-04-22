@@ -413,5 +413,88 @@ run_test "grep '^version:' ./sub/docs/antora.yml" "0" "\-rc4"
 rm -rf ./sub
 
 #----------------------------------------------------------------------
+# Group 10: repeated switches (multiple occurrences of the same flag)
+#----------------------------------------------------------------------
+echo
+echo "# Group 10: repeated switches"
 
 cleanup
+
+# --js --js PATH : update local package.json AND the specified one
+mk_package_json
+mkdir -p ./packages/entropy-cpp
+cat > ./packages/entropy-cpp/package.json << 'EOF'
+{
+  "name": "entropy-cpp",
+  "version": "0.0.1",
+  "license": "MIT"
+}
+EOF
+run_test "$GV_BIN --js --js packages/entropy-cpp/package.json" "0" "package.json updated:.*packages/entropy-cpp/package.json updated:"
+run_test "grep '\"version\"' ./package.json" "0" "\"version\".*\"[0-9]+\.[0-9]+\.[0-9]+\""
+run_test "grep '\"version\"' ./packages/entropy-cpp/package.json" "0" "\"version\".*\"[0-9]+\.[0-9]+\.[0-9]+\""
+rm -rf ./packages
+cleanup
+
+# User's example: --js --js PATH --antora : all three files touched
+mk_package_json
+mk_antora
+mkdir -p ./packages/entropy-cpp
+cat > ./packages/entropy-cpp/package.json << 'EOF'
+{
+  "name": "entropy-cpp",
+  "version": "0.0.1",
+  "license": "MIT"
+}
+EOF
+run_test "$GV_BIN --js --js packages/entropy-cpp/package.json --antora" "0" "package.json updated:.*packages/entropy-cpp/package.json updated:.*Updating.*antora.yml"
+rm -rf ./packages
+cleanup
+
+# --vs --vs PATH : two version.h files in one run
+mk_version_h
+mkdir -p ./other
+cat > ./other/version.h << 'EOF'
+#define VERSION_MAJOR     0
+#define VERSION_MINOR     1
+#define VERSION_PATCH     54
+#define VERSION_BUILD     0
+#define VERSION_SUFFIX    ""
+EOF
+run_test "$GV_BIN --vs --vs other/version.h" "0" "version.h updated:.*other/version.h updated:"
+rm -rf ./other
+cleanup
+
+# --nsi PATH --nsi PATH : two .nsi files in one run
+mkdir -p ./a ./b
+cat > ./a/first.nsi << 'EOF'
+!define APP_NAME "First"
+!define APP_VERSION "0.0.1"
+EOF
+cat > ./b/second.nsi << 'EOF'
+!define APP_NAME "Second"
+!define APP_VERSION "0.0.1"
+EOF
+run_test "$GV_BIN --nsi a/first.nsi --nsi b/second.nsi" "0" "Updating a/first.nsi.*Updating b/second.nsi"
+run_test "grep '!define APP_VERSION' ./a/first.nsi" "0" "APP_VERSION.*\"[0-9]+\.[0-9]+\.[0-9]+\""
+run_test "grep '!define APP_VERSION' ./b/second.nsi" "0" "APP_VERSION.*\"[0-9]+\.[0-9]+\.[0-9]+\""
+rm -rf ./a ./b
+cleanup
+
+# --antora --antora PATH : default antora.yml plus custom path
+mk_antora
+mkdir -p ./docs/site
+cat > ./docs/site/antora.yml << 'EOF'
+name: site
+title: site
+version: "0.3"
+EOF
+run_test "$GV_BIN --antora --antora docs/site/antora.yml --tag rc5" "0" "Updating.*antora-docs/antora.yml.*Updating docs/site/antora.yml"
+run_test "grep '^version:' ./antora-docs/antora.yml" "0" "\-rc5"
+run_test "grep '^version:' ./docs/site/antora.yml" "0" "\-rc5"
+rm -rf ./docs
+
+#----------------------------------------------------------------------
+
+cleanup
+

@@ -6,12 +6,13 @@
 # PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-	echo "usage: $(basename $0) [-a] [--js [PATH]|--vs [PATH]] [--nsi [PATH]] [--antora [PATH]] [--agv [--fix]] [--tag TAG] [-h | --help]"
+	echo "usage: $(basename $0) [-a] [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--agv [--fix]] [--tag TAG] [-h | --help]"
 	echo
 	echo "Examples:"
-	echo "    gv --js --tag api                  // package.json=  \"version\": \"0.0.21-api.5\" "
-	echo "    gv --js release/build/package.json // update version in custom path"
-	echo "    gv --vs --nsi                      // update both version.h and .nsi file simultaneously"
+	echo "    gv --js --tag api                                // package.json=  \"version\": \"0.0.21-api.5\" "
+	echo "    gv --js release/build/package.json               // update version in custom path"
+	echo "    gv --js --js packages/entropy-cpp/package.json   // update local package.json AND the specified one"
+	echo "    gv --vs --nsi                                    // update both version.h and .nsi file simultaneously"
 	echo
 }
 
@@ -36,6 +37,10 @@ COLLECT=0
 OBF_OUT=./obfuscate/out
 OUT=$OBF_OUT
 HELP=0
+JS_FILES=()
+VS_FILES=()
+NSI_FILES=()
+ANTORA_FILES=()
 while [ "$1" != "" ]; do
 	case $1 in
 		--tag )					shift
@@ -48,7 +53,9 @@ while [ "$1" != "" ]; do
 		--js)					JAVASCRIPT=1
 								if [ -n "$2" ] && [[ "$2" != -* ]]; then
 									shift
-									JS_FILE_ARG="$1"
+									JS_FILES+=("$1")
+								else
+									JS_FILES+=("package.json")
 								fi
 								;;
 		# --java)				JAVA=1
@@ -56,19 +63,28 @@ while [ "$1" != "" ]; do
 		--vs)					VS=1
 								if [ -n "$2" ] && [[ "$2" != -* ]]; then
 									shift
-									VS_FILE_ARG="$1"
+									VS_FILES+=("$1")
+								else
+									VS_FILES+=("./version.h")
 								fi
 								;;
 		--nsi)					NSI=1
 								if [ -n "$2" ] && [[ "$2" != -* ]]; then
 									shift
-									NSI_FILE_ARG="$1"
+									NSI_FILES+=("$1")
+								else
+									CURRENT_DIR=$(pwd)
+									TOP_DIR=$(basename "$CURRENT_DIR")
+									TOP_DIR_CLEAN="${TOP_DIR%.git}"
+									NSI_FILES+=("${TOP_DIR_CLEAN}.nsi")
 								fi
 								;;
 		--antora)				ANTORA=1
 								if [ -n "$2" ] && [[ "$2" != -* ]]; then
 									shift
-									ANTORA_FILE_ARG="$1"
+									ANTORA_FILES+=("$1")
+								else
+									ANTORA_FILES+=("./antora-docs/antora.yml")
 								fi
 								;;
 		--agv)					APPLE_GENERIC_VER=1
@@ -131,9 +147,11 @@ PATCH_NR=$(echo "$GIT_TAG" | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g')
 PLUS1=$((PATCH_NR + 1))
 NEWVER="$MAJOR_NR.$MINOR_NR.$PLUS1"
 
-JS_FILE="${JS_FILE_ARG:-package.json}"
+if (( $AUTO )) && [ ${#JS_FILES[@]} -eq 0 ] && [ -f "package.json" ]; then
+	JS_FILES+=("package.json")
+fi
 
-if (( $JAVASCRIPT )) || { (( $AUTO )) && [ -f "$JS_FILE" ]; }; then
+for JS_FILE in "${JS_FILES[@]}"; do
 
 	# https://superuser.com/questions/112834/how-to-match-whitespace-in-sed/637913#637913
 	# https://stackoverflow.com/questions/7573368/in-place-edits-with-sed-on-os-x/7573438#7573438
@@ -162,7 +180,7 @@ if (( $JAVASCRIPT )) || { (( $AUTO )) && [ -f "$JS_FILE" ]; }; then
         fi
         # If current version has an extra tag, do nothing
     fi
-fi
+done
 
 	# elif (( $JAVA )); then
 	# 	echo "$JS_FILE= version $(grep -m1 commit "$JS_FILE" | sed 's/.*commit=[ ]*\"\([^"]*\)\";/\1/')"
@@ -217,9 +235,11 @@ fi
 # --vs : Update version.h for Visual Studio C++ project
 #─────────────────────────────────────────────────────────────
 
-VERSION_H="${VS_FILE_ARG:-./version.h}"
+if (( $AUTO )) && [ ${#VS_FILES[@]} -eq 0 ] && [ -f "./version.h" ]; then
+	VS_FILES+=("./version.h")
+fi
 
-if (( $VS )) || { (( $AUTO )) && [ -f "$VERSION_H" ]; }; then
+for VERSION_H in "${VS_FILES[@]}"; do
 
     if [ ! -f "$VERSION_H" ]; then
         echo "Error: version.h not found at $VERSION_H"
@@ -282,22 +302,21 @@ if (( $VS )) || { (( $AUTO )) && [ -f "$VERSION_H" ]; }; then
 
     echo "${VERSION_H} updated:"
     grep -E 'VERSION_(MAJOR|MINOR|PATCH|BUILD|SUFFIX)' "$VERSION_H" | sed 's/^/  /'
-fi
+done
 
 #─────────────────────────────────────────────────────────────
 # --nsi : Update !define APP_VERSION in the main .nsi file
 #─────────────────────────────────────────────────────────────
 
-if [ -n "$NSI_FILE_ARG" ]; then
-    NSI_FILE="$NSI_FILE_ARG"
-else
+if (( $AUTO )) && [ ${#NSI_FILES[@]} -eq 0 ]; then
     CURRENT_DIR=$(pwd)
     TOP_DIR=$(basename "$CURRENT_DIR")
     TOP_DIR_CLEAN="${TOP_DIR%.git}"
-    NSI_FILE="${TOP_DIR_CLEAN}.nsi"
+    DEFAULT_NSI="${TOP_DIR_CLEAN}.nsi"
+    [ -f "$DEFAULT_NSI" ] && NSI_FILES+=("$DEFAULT_NSI")
 fi
 
-if (( $NSI )) || { (( $AUTO )) && [ -f "$NSI_FILE" ]; }; then
+for NSI_FILE in "${NSI_FILES[@]}"; do
 
     # Check if file exists in current directory
     if [ ! -f "$NSI_FILE" ]; then
@@ -324,7 +343,7 @@ if (( $NSI )) || { (( $AUTO )) && [ -f "$NSI_FILE" ]; }; then
     else
         # Add new line after the last !define (or at the beginning)
         echo "Warning: No existing APP_VERSION found; adding new line"
-		return
+		continue
 #         sed -i.bak \
 #             "/^!define/a\\
 # !define APP_VERSION \"${FULL_VERSION}\"" \
@@ -339,15 +358,17 @@ if (( $NSI )) || { (( $AUTO )) && [ -f "$NSI_FILE" ]; }; then
     # Optional: show context (last few lines with defines)
     # echo "Nearby defines:"
     # grep -A 6 -B 6 -E "^[[:space:]]*![[:space:]]*define" "$NSI_FILE" | sed 's/^/  /'
-fi
+done
 
 #─────────────────────────────────────────────────────────────
 # --antora : Update version in antora-docs/antora.yml
 #─────────────────────────────────────────────────────────────
 
-ANTORA_FILE="${ANTORA_FILE_ARG:-./antora-docs/antora.yml}"
+if (( $AUTO )) && [ ${#ANTORA_FILES[@]} -eq 0 ] && [ -f "./antora-docs/antora.yml" ]; then
+	ANTORA_FILES+=("./antora-docs/antora.yml")
+fi
 
-if (( $ANTORA )) || { (( $AUTO )) && [ -f "$ANTORA_FILE" ]; }; then
+for ANTORA_FILE in "${ANTORA_FILES[@]}"; do
 
     if [ ! -f "$ANTORA_FILE" ]; then
         echo "Error: antora.yml not found at $ANTORA_FILE"
@@ -369,7 +390,9 @@ if (( $ANTORA )) || { (( $AUTO )) && [ -f "$ANTORA_FILE" ]; }; then
     rm -f "${ANTORA_FILE}.bak"
 
     grep "^version:" "$ANTORA_FILE" | sed 's/^/  /'
-fi
+done
+
+echo
 
 # if [[ $COLLECT == 1 ]]; then
 # 	collect || error_exit
