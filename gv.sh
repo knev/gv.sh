@@ -6,7 +6,7 @@
 # PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-	echo "usage: $(basename $0) [-a] [--js [PATH]|--java|--vs] [--nsi [PATH]] [--antora [PATH]] [--agv [--fix]] [--tag TAG] [-h | --help]"
+	echo "usage: $(basename $0) [-a] [--js [PATH]|--java|--vs [PATH]] [--nsi [PATH]] [--antora [PATH]] [--agv [--fix]] [--tag TAG] [-h | --help]"
 	echo
 	echo "Examples:"
 	echo "    gv --js --tag api                  // package.json=  \"version\": \"0.0.21-api.5\" "
@@ -54,6 +54,10 @@ while [ "$1" != "" ]; do
 		# --java)				JAVA=1
 		# 						;;
 		--vs)					VS=1
+								if [ -n "$2" ] && [[ "$2" != -* ]]; then
+									shift
+									VS_FILE_ARG="$1"
+								fi
 								;;
 		--nsi)					NSI=1
 								if [ -n "$2" ] && [[ "$2" != -* ]]; then
@@ -213,7 +217,7 @@ fi
 # --vs : Update version.h for Visual Studio C++ project
 #─────────────────────────────────────────────────────────────
 
-VERSION_H="./version.h"             # Change this path if needed!
+VERSION_H="${VS_FILE_ARG:-./version.h}"
 
 if (( $VS )) || { (( $AUTO )) && [ -f "$VERSION_H" ]; }; then
 
@@ -230,7 +234,7 @@ if (( $VS )) || { (( $AUTO )) && [ -f "$VERSION_H" ]; }; then
     fi
 
     # Backup first (good practice)
-    echo "Updating version.h [$NEWVER${SUFFIX}]"
+    echo "Updating ${VERSION_H} [$NEWVER${SUFFIX}]"
 
     cp "$VERSION_H" "$VERSION_H.bak" || exit 1
 
@@ -276,7 +280,7 @@ if (( $VS )) || { (( $AUTO )) && [ -f "$VERSION_H" ]; }; then
     # Clean up backup files created by sed -i.bak (macOS & some Linux)
     rm -f "${VERSION_H}.bak"
 
-    echo "version.h updated:"
+    echo "${VERSION_H} updated:"
     grep -E 'VERSION_(MAJOR|MINOR|PATCH|BUILD|SUFFIX)' "$VERSION_H" | sed 's/^/  /'
 fi
 

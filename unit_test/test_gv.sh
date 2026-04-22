@@ -263,10 +263,42 @@ mk_package_json
 run_test "$GV_BIN --js --tag somefeature" "0" "$(escape_expected "somefeature")" "true"
 
 #----------------------------------------------------------------------
-# Group 9: optional PATH parameter on --js, --nsi, --antora
+# Group 9: optional PATH parameter on --js, --vs, --nsi, --antora
 #----------------------------------------------------------------------
 echo
 echo "# Group 9: optional PATH parameter"
+
+cleanup
+
+# --vs PATH: update version in custom version.h location
+mkdir -p ./src/include
+cat > ./src/include/version.h << 'EOF'
+// version.h
+#pragma once
+
+#define VERSION_MAJOR     0
+#define VERSION_MINOR     1
+#define VERSION_PATCH     54
+#define VERSION_BUILD     0
+#define VERSION_SUFFIX    ""
+EOF
+run_test "$GV_BIN --vs src/include/version.h" "0" "src/include/version.h updated:"
+run_test "grep 'VERSION_PATCH' ./src/include/version.h" "0" "VERSION_PATCH[[:space:]]+[0-9]+"
+# Default ./version.h should NOT be created/touched
+run_test "ls version.h 2>&1" "1" "No such file"
+rm -rf ./src
+
+# --vs PATH with --tag
+mkdir -p ./alt
+cat > ./alt/ver.h << 'EOF'
+#define VERSION_MAJOR     0
+#define VERSION_MINOR     1
+#define VERSION_PATCH     54
+#define VERSION_BUILD     0
+#define VERSION_SUFFIX    ""
+EOF
+run_test "$GV_BIN --vs alt/ver.h --tag alpha" "0" "VERSION_SUFFIX.*\-alpha"
+rm -rf ./alt
 
 cleanup
 
@@ -345,17 +377,25 @@ rm -rf ./docs
 
 # Missing custom file: should error out, not fall back to default
 run_test "$GV_BIN --js does/not/exist.json" "0" "$(escape_expected "package.json updated:")" "true"
+run_test "$GV_BIN --vs does/not/exist.h" "1" "Error: version.h not found"
 run_test "$GV_BIN --nsi does/not/exist.nsi" "1" "Error: Could not find"
 run_test "$GV_BIN --antora does/not/exist.yml" "1" "Error: antora.yml not found"
 
 # Combined switches with custom paths: each switch claims its own PATH
-mkdir -p ./sub/js ./sub/nsi ./sub/docs
+mkdir -p ./sub/js ./sub/vs ./sub/nsi ./sub/docs
 cat > ./sub/js/package.json << 'EOF'
 {
   "name": "combo",
   "version": "0.0.1",
   "license": "MIT"
 }
+EOF
+cat > ./sub/vs/version.h << 'EOF'
+#define VERSION_MAJOR     0
+#define VERSION_MINOR     1
+#define VERSION_PATCH     54
+#define VERSION_BUILD     0
+#define VERSION_SUFFIX    ""
 EOF
 cat > ./sub/nsi/app.nsi << 'EOF'
 !define APP_NAME "Combo"
@@ -366,7 +406,8 @@ name: combo
 title: combo
 version: "0.0"
 EOF
-run_test "$GV_BIN --js sub/js/package.json --nsi sub/nsi/app.nsi --antora sub/docs/antora.yml --tag rc4" "0" "package.json updated:.*Updating sub/nsi/app.nsi.*Updating sub/docs/antora.yml"
+run_test "$GV_BIN --js sub/js/package.json --vs sub/vs/version.h --nsi sub/nsi/app.nsi --antora sub/docs/antora.yml --tag rc4" "0" "package.json updated:.*sub/vs/version.h updated:.*Updating sub/nsi/app.nsi.*Updating sub/docs/antora.yml"
+run_test "grep 'VERSION_SUFFIX' ./sub/vs/version.h" "0" "\-rc4"
 run_test "grep '!define APP_VERSION' ./sub/nsi/app.nsi" "0" "\-rc4"
 run_test "grep '^version:' ./sub/docs/antora.yml" "0" "\-rc4"
 rm -rf ./sub
