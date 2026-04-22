@@ -6,11 +6,12 @@
 # PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-	echo "usage: $(basename $0) [-a] [--js|--java|--vs] [--nsi] [--antora] [--agv [--fix]] [--tag TAG] [-h | --help]"
+	echo "usage: $(basename $0) [-a] [--js [PATH]|--java|--vs] [--nsi [PATH]] [--antora [PATH]] [--agv [--fix]] [--tag TAG] [-h | --help]"
 	echo
 	echo "Examples:"
-	echo "    gv --js --tag api // package.json=  \"version\": \"0.0.21-api.5\" "
-	echo "    gv --vs --nsi     // update both version.h and .nsi file simultaneously"
+	echo "    gv --js --tag api                  // package.json=  \"version\": \"0.0.21-api.5\" "
+	echo "    gv --js release/build/package.json // update version in custom path"
+	echo "    gv --vs --nsi                      // update both version.h and .nsi file simultaneously"
 	echo
 }
 
@@ -45,14 +46,26 @@ while [ "$1" != "" ]; do
 		-a)						AUTO=1
 								;;
 		--js)					JAVASCRIPT=1
+								if [ -n "$2" ] && [[ "$2" != -* ]]; then
+									shift
+									JS_FILE_ARG="$1"
+								fi
 								;;
 		# --java)				JAVA=1
 		# 						;;
 		--vs)					VS=1
 								;;
 		--nsi)					NSI=1
+								if [ -n "$2" ] && [[ "$2" != -* ]]; then
+									shift
+									NSI_FILE_ARG="$1"
+								fi
 								;;
 		--antora)				ANTORA=1
+								if [ -n "$2" ] && [[ "$2" != -* ]]; then
+									shift
+									ANTORA_FILE_ARG="$1"
+								fi
 								;;
 		--agv)					APPLE_GENERIC_VER=1
 								;;
@@ -114,10 +127,9 @@ PATCH_NR=$(echo "$GIT_TAG" | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g')
 PLUS1=$((PATCH_NR + 1))
 NEWVER="$MAJOR_NR.$MINOR_NR.$PLUS1"
 
-JS_FILE='package.json'
+JS_FILE="${JS_FILE_ARG:-package.json}"
 
-if (( $JAVASCRIPT )) || { (( $AUTO )) && [ -f "package.json" ]; }; then
-	JS_FILE='package.json'
+if (( $JAVASCRIPT )) || { (( $AUTO )) && [ -f "$JS_FILE" ]; }; then
 
 	# https://superuser.com/questions/112834/how-to-match-whitespace-in-sed/637913#637913
 	# https://stackoverflow.com/questions/7573368/in-place-edits-with-sed-on-os-x/7573438#7573438
@@ -131,18 +143,18 @@ if (( $JAVASCRIPT )) || { (( $AUTO )) && [ -f "package.json" ]; }; then
     if [ -n "$EXTRA_GIT_TAG" ]; then
         # If EXTRA_GIT_TAG is not empty, update to NEWVER-EXTRA_GIT_TAG
         NEWVER_DASH_TAG="$NEWVER-$EXTRA_GIT_TAG"
-        sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\(-[^"]*\)\?\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEWVER_DASH_TAG"'\3/' "$JS_FILE" > "$JS_FILE.tmp" && mv "$JS_FILE.tmp" "$JS_FILE"
+        sed -E 's/^([[:space:]]*"version"[[:space:]]*:[[:space:]]*")[0-9]+\.[0-9]+\.[0-9]+(-[^"]*)?("[[:space:]]*,[[:space:]]*)$/\1'"$NEWVER_DASH_TAG"'\3/' "$JS_FILE" > "$JS_FILE.tmp" && mv "$JS_FILE.tmp" "$JS_FILE"
 
-		echo "package.json updated: {"
-		echo -e "$(grep -m1 version "package.json")\n}"
+		echo "$JS_FILE updated: {"
+		echo -e "$(grep -m1 version "$JS_FILE")\n}"
     else
         # If EXTRA_GIT_TAG is empty, check for extra tag in current version
         if [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             # No extra tag in current version, update to NEWVER
-            sed 's/^\([[:space:]]*"version"[[:space:]]*:[[:space:]]*"\)[0-9]*.[0-9]*.[0-9]*\("[[:space:]]*,[[:space:]]*\)$/\1'"$NEWVER"'\2/' "$JS_FILE" > "$JS_FILE.tmp" && mv "$JS_FILE.tmp" "$JS_FILE"
+            sed -E 's/^([[:space:]]*"version"[[:space:]]*:[[:space:]]*")[0-9]+\.[0-9]+\.[0-9]+("[[:space:]]*,[[:space:]]*)$/\1'"$NEWVER"'\2/' "$JS_FILE" > "$JS_FILE.tmp" && mv "$JS_FILE.tmp" "$JS_FILE"
 
-    		echo "package.json updated: {"
-			echo -e "$(grep -m1 version "package.json")\n}"
+    		echo "$JS_FILE updated: {"
+			echo -e "$(grep -m1 version "$JS_FILE")\n}"
         fi
         # If current version has an extra tag, do nothing
     fi
@@ -272,10 +284,14 @@ fi
 # --nsi : Update !define APP_VERSION in the main .nsi file
 #─────────────────────────────────────────────────────────────
 
-CURRENT_DIR=$(pwd)
-TOP_DIR=$(basename "$CURRENT_DIR")
-TOP_DIR_CLEAN="${TOP_DIR%.git}"
-NSI_FILE="${TOP_DIR_CLEAN}.nsi"
+if [ -n "$NSI_FILE_ARG" ]; then
+    NSI_FILE="$NSI_FILE_ARG"
+else
+    CURRENT_DIR=$(pwd)
+    TOP_DIR=$(basename "$CURRENT_DIR")
+    TOP_DIR_CLEAN="${TOP_DIR%.git}"
+    NSI_FILE="${TOP_DIR_CLEAN}.nsi"
+fi
 
 if (( $NSI )) || { (( $AUTO )) && [ -f "$NSI_FILE" ]; }; then
 
@@ -325,7 +341,7 @@ fi
 # --antora : Update version in antora-docs/antora.yml
 #─────────────────────────────────────────────────────────────
 
-ANTORA_FILE="./antora-docs/antora.yml"
+ANTORA_FILE="${ANTORA_FILE_ARG:-./antora-docs/antora.yml}"
 
 if (( $ANTORA )) || { (( $AUTO )) && [ -f "$ANTORA_FILE" ]; }; then
 

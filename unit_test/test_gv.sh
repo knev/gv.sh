@@ -263,5 +263,114 @@ mk_package_json
 run_test "$GV_BIN --js --tag somefeature" "0" "$(escape_expected "somefeature")" "true"
 
 #----------------------------------------------------------------------
+# Group 9: optional PATH parameter on --js, --nsi, --antora
+#----------------------------------------------------------------------
+echo
+echo "# Group 9: optional PATH parameter"
+
+cleanup
+
+# --js PATH: update version in custom location
+mkdir -p ./release/build
+cat > ./release/build/package.json << 'EOF'
+{
+  "name": "custom",
+  "version": "0.1.49",
+  "license": "MIT"
+}
+EOF
+run_test "$GV_BIN --js release/build/package.json" "0" "$(escape_expected "package.json updated:")"
+run_test "grep '\"version\"' ./release/build/package.json" "0" "\"version\".*\"[0-9]+\.[0-9]+\.[0-9]+\""
+# Default package.json should NOT be created/touched
+run_test "ls package.json 2>&1" "1" "No such file"
+rm -rf ./release
+
+# --js PATH with --tag
+mkdir -p ./alt
+cat > ./alt/pkg.json << 'EOF'
+{
+  "name": "alt",
+  "version": "0.1.49",
+  "license": "MIT"
+}
+EOF
+run_test "$GV_BIN --js alt/pkg.json --tag api" "0" "$(escape_expected "pkg.json updated:")"
+run_test "grep '\"version\"' ./alt/pkg.json" "0" "\-api"
+rm -rf ./alt
+
+cleanup
+
+# --nsi PATH: update APP_VERSION in custom file
+mkdir -p ./installer
+cat > ./installer/myapp.nsi << 'EOF'
+!define APP_NAME "MyApp"
+!define APP_VERSION "0.1.9"
+EOF
+run_test "$GV_BIN --nsi installer/myapp.nsi" "0" "APP_VERSION"
+run_test "grep '!define APP_VERSION' ./installer/myapp.nsi" "0" "APP_VERSION.*\"[0-9]+\.[0-9]+\.[0-9]+\""
+rm -rf ./installer
+
+# --nsi PATH with --tag
+mkdir -p ./installer
+cat > ./installer/myapp.nsi << 'EOF'
+!define APP_NAME "MyApp"
+!define APP_VERSION "0.1.9"
+EOF
+run_test "$GV_BIN --nsi installer/myapp.nsi --tag beta" "0" "APP_VERSION.*\-beta"
+rm -rf ./installer
+
+cleanup
+
+# --antora PATH: update version in custom antora.yml
+mkdir -p ./docs/site
+cat > ./docs/site/antora.yml << 'EOF'
+name: IOI
+title: IOI
+version: "0.3"
+EOF
+run_test "$GV_BIN --antora docs/site/antora.yml" "0" "Updating.*antora.yml"
+run_test "grep '^version:' ./docs/site/antora.yml" "0" "version:.*[0-9]+\.[0-9]+\.[0-9]+"
+rm -rf ./docs
+
+# --antora PATH with --tag
+mkdir -p ./docs/site
+cat > ./docs/site/antora.yml << 'EOF'
+name: IOI
+title: IOI
+version: "0.3"
+EOF
+run_test "$GV_BIN --antora docs/site/antora.yml --tag rc3" "0" "\-rc3"
+run_test "grep '^version:' ./docs/site/antora.yml" "0" "\-rc3"
+rm -rf ./docs
+
+# Missing custom file: should error out, not fall back to default
+run_test "$GV_BIN --js does/not/exist.json" "0" "$(escape_expected "package.json updated:")" "true"
+run_test "$GV_BIN --nsi does/not/exist.nsi" "1" "Error: Could not find"
+run_test "$GV_BIN --antora does/not/exist.yml" "1" "Error: antora.yml not found"
+
+# Combined switches with custom paths: each switch claims its own PATH
+mkdir -p ./sub/js ./sub/nsi ./sub/docs
+cat > ./sub/js/package.json << 'EOF'
+{
+  "name": "combo",
+  "version": "0.0.1",
+  "license": "MIT"
+}
+EOF
+cat > ./sub/nsi/app.nsi << 'EOF'
+!define APP_NAME "Combo"
+!define APP_VERSION "0.0.1"
+EOF
+cat > ./sub/docs/antora.yml << 'EOF'
+name: combo
+title: combo
+version: "0.0"
+EOF
+run_test "$GV_BIN --js sub/js/package.json --nsi sub/nsi/app.nsi --antora sub/docs/antora.yml --tag rc4" "0" "package.json updated:.*Updating sub/nsi/app.nsi.*Updating sub/docs/antora.yml"
+run_test "grep '!define APP_VERSION' ./sub/nsi/app.nsi" "0" "\-rc4"
+run_test "grep '^version:' ./sub/docs/antora.yml" "0" "\-rc4"
+rm -rf ./sub
+
+#----------------------------------------------------------------------
 
 cleanup
