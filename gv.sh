@@ -247,7 +247,9 @@ for VERSION_H in "${VS_FILES[@]}"; do
     fi
 
 	echo
-    if [ -n "$TAG" ]; then
+    if [ -n "$EXTRA_GIT_TAG" ]; then
+        SUFFIX="-$EXTRA_GIT_TAG"
+    elif [ -n "$TAG" ]; then
         SUFFIX="-$TAG"
     else
         SUFFIX=""
@@ -326,7 +328,11 @@ for NSI_FILE in "${NSI_FILES[@]}"; do
     fi
 
     FULL_VERSION="${NEWVER}"
-    [ -n "$TAG" ] && FULL_VERSION="${FULL_VERSION}-${TAG}"
+    if [ -n "$EXTRA_GIT_TAG" ]; then
+        FULL_VERSION="${FULL_VERSION}-${EXTRA_GIT_TAG}"
+    elif [ -n "$TAG" ]; then
+        FULL_VERSION="${FULL_VERSION}-${TAG}"
+    fi
 
 	echo
     echo "Updating ${NSI_FILE} APP_VERSION [${FULL_VERSION}]"
@@ -376,7 +382,11 @@ for ANTORA_FILE in "${ANTORA_FILES[@]}"; do
     fi
 
     FULL_VERSION="${NEWVER}"
-    [ -n "$TAG" ] && FULL_VERSION="${FULL_VERSION}-${TAG}"
+    if [ -n "$EXTRA_GIT_TAG" ]; then
+        FULL_VERSION="${FULL_VERSION}-${EXTRA_GIT_TAG}"
+    elif [ -n "$TAG" ]; then
+        FULL_VERSION="${FULL_VERSION}-${TAG}"
+    fi
 
     echo
     echo "Updating ${ANTORA_FILE} version [${FULL_VERSION}]"

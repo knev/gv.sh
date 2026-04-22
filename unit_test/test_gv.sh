@@ -261,6 +261,24 @@ cleanup
 # So just verify it exits cleanly and prints the version line
 mk_package_json
 run_test "$GV_BIN --js --tag somefeature" "0" "$(escape_expected "somefeature")" "true"
+cleanup
+
+# --tag resolves against git tags (api.6 exists as a tag in this repo):
+# --vs, --nsi, --antora should write the resolved suffix (-api.6) into their files,
+# matching what --js does, NOT just the literal "-api".
+mk_version_h
+run_test "$GV_BIN --vs --tag api" "0" "VERSION_SUFFIX.*\-api\.6"
+run_test "grep 'VERSION_SUFFIX' ./version.h" "0" "\"\-api\.6\""
+cleanup
+
+mk_nsi
+run_test "$GV_BIN --nsi --tag api" "0" "APP_VERSION.*\-api\.6"
+run_test "grep '!define APP_VERSION' ./$_NSI_FILE" "0" "APP_VERSION.*\-api\.6"
+cleanup
+
+mk_antora
+run_test "$GV_BIN --antora --tag api" "0" "Updating.*antora.yml"
+run_test "grep '^version:' ./antora-docs/antora.yml" "0" "\-api\.6"
 
 #----------------------------------------------------------------------
 # Group 9: optional PATH parameter on --js, --vs, --nsi, --antora
