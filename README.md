@@ -24,7 +24,7 @@ If `--tag TAG` is passed, `gv` additionally looks up the most recent tag matchin
 ## Usage
 
 ```
-gv [-a] [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--agv [--fix]] [--tag TAG] [-h | --help]
+gv [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--agv [--fix]] [--tag TAG] [-h | --help]
 ```
 
 ### Target switches
@@ -61,17 +61,12 @@ Not supported: `--js PATH PATH PATH` (subsequent bare paths are parsed as unknow
 
 | Switch           | Effect                                                                                             |
 |------------------|----------------------------------------------------------------------------------------------------|
-| `-a`             | Auto mode. For each target whose switch was NOT given, if its default file exists, update it.      |
 | `--tag TAG`      | Suffix handling. `--vs`/`--nsi`/`--antora` append `-TAG` to the written version. `--js` uses `TAG.N.M` git tags to form e.g. `0.0.21-api.5`. |
 | `--agv`          | Apple Generic Versioning: runs `agvtool new-marketing-version` and `agvtool next-version -all`.    |
 | `--agv --fix`    | Rewrite `INFOPLIST_FILE = "$(SRCROOT)/…"` to `INFOPLIST_FILE = "…"` in the `.xcodeproj/project.pbxproj`. |
 | `--agv -h`       | Print setup notes for AGV instead of running it.                                                   |
 | `--print`        | Print the computed git tag (on by default).                                                        |
 | `-h`, `--help`   | Print usage.                                                                                       |
-
-### AUTO-mode interaction with repeated switches
-
-`-a` only fills in defaults for switches that weren't specified at all. If you pass `--js` (even once, with or without a PATH), `-a` will not additionally inject the default `./package.json` on your behalf — pass it explicitly as another `--js` if you want both.
 
 ## Examples
 
@@ -91,9 +86,6 @@ gv --vs --nsi
 
 # Bump two package.json files and the antora docs
 gv --js --js packages/entropy-cpp/package.json --antora
-
-# Auto mode: whatever default files are present, update them
-gv -a
 ```
 
 ## Testing
@@ -104,5 +96,5 @@ gv -a
 ./test.sh -v       # verbose
 ```
 
-Tests live in `unit_test/test_gv.sh` and cover each switch individually, combined switches, custom PATH arguments, AUTO mode, `--tag` interaction, and repeated switches.
+Tests live in `unit_test/test_gv.sh` and cover each switch individually, combined switches, custom PATH arguments, `--tag` interaction, and repeated switches.
 

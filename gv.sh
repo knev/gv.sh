@@ -6,7 +6,7 @@
 # PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-	echo "usage: $(basename $0) [-a] [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--agv [--fix]] [--tag TAG] [-h | --help]"
+	echo "usage: $(basename $0) [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--agv [--fix]] [--tag TAG] [-h | --help]"
 	echo
 	echo "Examples:"
 	echo "    gv --js --tag api                                // package.json=  \"version\": \"0.0.21-api.5\" "
@@ -22,8 +22,6 @@ error_exit() {
 }
 
 FILE=./src/se/mitm/version/Version.java
-
-AUTO=0
 
 PRINT=1
 JAVASCRIPT=0
@@ -47,8 +45,6 @@ while [ "$1" != "" ]; do
 								TAG=$1
 								;;
 		--print )				PRINT=1
-								;;
-		-a)						AUTO=1
 								;;
 		--js)					JAVASCRIPT=1
 								if [ -n "$2" ] && [[ "$2" != -* ]]; then
@@ -147,10 +143,6 @@ PATCH_NR=$(echo "$GIT_TAG" | sed 's/^v[0-9]*.[0-9]*-\([0-9]*\)-.*/\1/g')
 PLUS1=$((PATCH_NR + 1))
 NEWVER="$MAJOR_NR.$MINOR_NR.$PLUS1"
 
-if (( $AUTO )) && [ ${#JS_FILES[@]} -eq 0 ] && [ -f "package.json" ]; then
-	JS_FILES+=("package.json")
-fi
-
 for JS_FILE in "${JS_FILES[@]}"; do
 
 	# https://superuser.com/questions/112834/how-to-match-whitespace-in-sed/637913#637913
@@ -235,10 +227,6 @@ fi
 # --vs : Update version.h for Visual Studio C++ project
 #─────────────────────────────────────────────────────────────
 
-if (( $AUTO )) && [ ${#VS_FILES[@]} -eq 0 ] && [ -f "./version.h" ]; then
-	VS_FILES+=("./version.h")
-fi
-
 for VERSION_H in "${VS_FILES[@]}"; do
 
     if [ ! -f "$VERSION_H" ]; then
@@ -310,14 +298,6 @@ done
 # --nsi : Update !define APP_VERSION in the main .nsi file
 #─────────────────────────────────────────────────────────────
 
-if (( $AUTO )) && [ ${#NSI_FILES[@]} -eq 0 ]; then
-    CURRENT_DIR=$(pwd)
-    TOP_DIR=$(basename "$CURRENT_DIR")
-    TOP_DIR_CLEAN="${TOP_DIR%.git}"
-    DEFAULT_NSI="${TOP_DIR_CLEAN}.nsi"
-    [ -f "$DEFAULT_NSI" ] && NSI_FILES+=("$DEFAULT_NSI")
-fi
-
 for NSI_FILE in "${NSI_FILES[@]}"; do
 
     # Check if file exists in current directory
@@ -369,10 +349,6 @@ done
 #─────────────────────────────────────────────────────────────
 # --antora : Update version in antora-docs/antora.yml
 #─────────────────────────────────────────────────────────────
-
-if (( $AUTO )) && [ ${#ANTORA_FILES[@]} -eq 0 ] && [ -f "./antora-docs/antora.yml" ]; then
-	ANTORA_FILES+=("./antora-docs/antora.yml")
-fi
 
 for ANTORA_FILE in "${ANTORA_FILES[@]}"; do
 

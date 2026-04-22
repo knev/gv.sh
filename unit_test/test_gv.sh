@@ -165,43 +165,15 @@ mk_antora
 run_test "$GV_BIN --antora --tag api" "0" "\-api.6"
 
 #----------------------------------------------------------------------
-# Group 6: -a AUTO mode
+# Group 6: explicit switch isolation
 #----------------------------------------------------------------------
 echo
-echo "# Group 6: -a AUTO mode"
+echo "# Group 6: explicit switch isolation"
 
-cleanup
-
-run_test "$GV_BIN -a" "0" "Updating" "true"
-
-mk_version_h
-run_test "$GV_BIN -a" "0" "version.h updated:"
-cleanup
-
-mk_package_json
-mk_version_h
-run_test "$GV_BIN -a" "0" "$(escape_expected "package.json updated:.*version.h updated:")"
-cleanup
-
-mk_version_h
-mk_antora
-run_test "$GV_BIN -a" "0" "version.h updated:.*Updating.*antora.yml"
-cleanup
-
-mk_package_json
-mk_nsi
-run_test "$GV_BIN -a" "0" "package.json updated:.*Updating gv.sh.nsi"
-cleanup
-
-mk_package_json
-mk_version_h
-mk_nsi
-mk_antora
-run_test "$GV_BIN -a" "0" "package.json updated:.*version.h updated:.*Updating gv.sh.nsi.*Updating.*antora.yml"
 cleanup
 
 # Explicit --vs with both version.h and package.json present:
-# AUTO=0 so only VS fires, JS must NOT fire
+# only VS fires, JS must NOT fire
 mk_package_json
 mk_version_h
 run_test "$GV_BIN --vs" "0" "$(escape_expected "package.json updated:")" "true"
@@ -516,3 +488,4 @@ rm -rf ./docs
 
 cleanup
 
+echo
