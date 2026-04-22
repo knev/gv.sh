@@ -2,7 +2,7 @@
 # JDK8 := $(shell /usr/libexec/java_home -v 1.8)
 GV=gv.sh
 BIN=gv
-TARGET=/c/Users/dev
+TARGET := $(strip $(HOME))
 
 .PHONY: nothing install obf repo clean
 
