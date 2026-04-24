@@ -1,4 +1,4 @@
-# gv.sh
+# gv.sh (git-version)
 
 A git-tag-driven version bumper. Reads `git describe` on the current repo, computes the next patch version, and writes it into one or more project files (`package.json`, `version.h`, NSIS `.nsi`, Antora `antora.yml`).
 
