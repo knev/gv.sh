@@ -8,6 +8,17 @@
 usage() {
 	echo "usage: $(basename $0) [[--js|--vs|--nsi|--antora] [PATH]]... [--agv [--fix]] [--tag TAG] [-h | --help]"
 	echo
+	echo "Default PATH (when omitted):"
+	echo "    --js       package.json"
+	echo "    --vs       ./version.h"
+	echo "    --nsi      ./<current-dir>.nsi"
+	echo "    --antora   ./antora-docs/antora.yml"
+	echo
+	echo "Apple Generic Versioning (macOS / Xcode):"
+	echo "    --agv          bump marketing version + build number via agvtool"
+	echo "    --agv --fix    strip \$(SRCROOT)/ prefix from INFOPLIST_FILE in .xcodeproj/project.pbxproj"
+	echo "    --agv -h       show Xcode setup notes required for AGV to work"
+	echo
 	echo "Examples:"
 	echo "    gv --js --tag api                                // package.json=  \"version\": \"0.0.21-api.5\" "
 	echo "    gv --js release/build/package.json               // update version in custom path"
