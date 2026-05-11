@@ -528,9 +528,12 @@ else
     UNIT_FILES=("${sorted_files[@]}")
     UNIT_DISABLED=("${sorted_disabled[@]}")
 
-    # Catch collisions between any pair of (id, name) across all units.
+    # Catch collisions between any pair of (id, name) across enabled units.
+    # Disabled (`_test_*.sh`) units are skipped so a disabled leftover can
+    # share an id with its active replacement without tripping the check.
     seen=""
     for i in "${!UNIT_IDS[@]}"; do
+        [ "${UNIT_DISABLED[$i]}" = "true" ] && continue
         id="${UNIT_IDS[$i]}"
         name="${UNIT_NAMES[$i]}"
         case " $seen " in *" $id "*)
