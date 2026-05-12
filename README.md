@@ -26,6 +26,8 @@ commented out in `unitt`).
 unitt                       # entry point: option parsing + helpers, discovers and sources units
 unit_test/test_core.sh        # one test unit (any file matching test_*.sh is picked up)
 unit_test/test_99-extra.sh    # optionally numbered to control run order
+unit_test/test_05_42-foo.sh   # numbered + preamble tag — sources preamble_05.sh first
+unit_test/preamble_05.sh      # shared setup for any test_05_*.sh unit
 ```
 
 To grow the suite, drop another file under `unit_test/` whose basename starts
@@ -49,9 +51,47 @@ an `ID` is expected (e.g. `--step 99,...` and `--step discovery,...` both
 target `test_99-discovery.sh`). Unnumbered files have a single identifier
 equal to the full stripped basename.
 
-Run order is: numbered units first, in numeric order; then unnumbered units in
-alphabetical order. Duplicate identifiers (across either column) are an error
-at startup. Use `./unitt -l` (or `--list-units`) to print the full table.
+Files using the preamble form `test_<TAG>_<ID>-<NAME>.sh` (see below) are also
+numbered: the `<ID>` after the tag is the primary identifier, `<NAME>` is the
+name alias.
+
+Run order is: numbered units first, sorted by `(preamble tag, id)` — units with
+no preamble (or a legacy form, which is treated as tag 0) all come before any
+preamble-tagged units; ties on tag fall back to id. Unnumbered units run last
+in alphabetical order. Duplicate identifiers (across either column) are an
+error at startup. Use `./unitt -l` (or `--list-units`) to print the full table.
+
+Numeric ids and preamble tags must be **≤ 18 digits** — the sort key uses
+`$((10#...))` (bash 64-bit signed arithmetic) and silently overflows past
+that. unitt rejects out-of-range or non-numeric components at startup with a
+named error rather than discovering a unit whose sort position is garbage.
+In practice this isn't a constraint — typical ids are 1–5 digits.
+
+### Preambles
+
+Insert a `<TAG>_` prefix before the unit number to have unitt source
+`unit_test/preamble_<TAG>.sh` before sourcing the unit. The tag is one or more
+digits between the leading `test_` and the unit's id:
+
+| File                       | Preamble file                | Unit id | Name        |
+|----------------------------|------------------------------|---------|-------------|
+| `test_05_42-foo.sh`        | `unit_test/preamble_05.sh`   | `42`    | `foo`       |
+| `test_2_345-bar.sh`        | `unit_test/preamble_2.sh`    | `345`   | `bar`       |
+| `test_00_77-baz.sh`        | *(none — all-zero tag)*      | `77`    | `baz`       |
+| `test_99-discovery.sh`     | *(none — legacy form)*       | `99`    | `discovery` |
+
+Notes:
+
+- An **all-zero tag** (`0`, `00`, `000`, …) is the explicit "no preamble" form.
+  The check is numeric, so the number of zeros doesn't matter.
+- The preamble filename must match the tag exactly as written. `test_2_…` looks
+  for `preamble_2.sh`; `test_02_…` looks for `preamble_02.sh`. They are
+  different files.
+- If the named preamble doesn't exist, unitt exits with
+  `ERROR: preamble [unit_test/preamble_<TAG>.sh] not found for unit [<id>]`.
+- The preamble is re-sourced for **each** unit that uses it — it's a plain
+  `source` in the per-unit loop, not deduped. Anything it defines lives in the
+  same shell scope as the unit and the rest of the suite.
 
 ### Disabling a unit
 
