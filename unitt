@@ -15,6 +15,9 @@ usage() {
 	echo "                                Prompts: [Enter]=run, c=continue without stepping, l=continue to [unit,]line, s=skip, q=quit."
 	echo "    -l, --list-units            List discovered test units (id / name and file) and exit."
 	echo
+	echo "Naming: test_XX_YYY-NAME.sh — XX picks unit_test/preamble_XX.sh (XX=00 means no preamble),"
+	echo "        YYY is the unit id used by --units. Bare test_NN-NAME.sh is treated as XX=00."
+	echo
 	echo "Note: options -c and -v are mutually exclusive."
 	echo
 }
@@ -470,17 +473,27 @@ UNIT_IDS=()
 UNIT_NAMES=()
 UNIT_FILES=()
 UNIT_DISABLED=()
+UNIT_PREAMBLE_TAGS=()
 
 if [ -n "${UNIT_TEST_CORE:-}" ]; then
     UNIT_IDS=("core")
     UNIT_NAMES=("core")
     UNIT_FILES=("$UNIT_TEST_CORE")
     UNIT_DISABLED=("false")
+    UNIT_PREAMBLE_TAGS=("00")
 else
     _sortkeys=()
     # Discovery picks up both enabled (`test_*.sh`) and disabled
     # (`_test_*.sh`) units. Disabled units appear in --list-units output but
     # are never sourced and cannot be selected by --units / --step.
+    #
+    # Naming patterns recognised:
+    #   test_XX_YYY-NAME.sh — XX is the preamble tag (sourced from
+    #                         unit_test/preamble_XX.sh; XX=00 means none),
+    #                         YYY is the unit id used by --units / --step.
+    #   test_NN-NAME.sh     — legacy form; treated as XX=00 (no preamble),
+    #                         NN is the unit id.
+    #   test_NAME.sh        — non-numeric id; XX=00; sorted after numerics.
     for f in unit_test/test_*.sh unit_test/_test_*.sh; do
         [ -e "$f" ] || continue
         bn_full="${f##*/}"
@@ -491,18 +504,26 @@ else
             disabled="false"
             bn="${bn_full%.sh}"; bn="${bn#test_}"
         fi
-        if [[ "$bn" =~ ^([0-9]+)(-(.+))?$ ]]; then
+        preamble_tag="00"
+        if [[ "$bn" =~ ^([0-9]+)_([0-9a-zA-Z]+)(-(.+))?$ ]]; then
+            preamble_tag="${BASH_REMATCH[1]}"
+            id="${BASH_REMATCH[2]}"
+            name="${BASH_REMATCH[4]}"
+            [ -z "$name" ] && name="$id"
+            sk=$(printf '0_%010d_%010d' "$((10#$preamble_tag))" "$((10#$id))")
+        elif [[ "$bn" =~ ^([0-9]+)(-(.+))?$ ]]; then
             id="${BASH_REMATCH[1]}"
             name="${BASH_REMATCH[3]}"
             [ -z "$name" ] && name="$id"
-            sk=$(printf '0_%010d' "$((10#$id))")
+            sk=$(printf '0_0000000000_%010d' "$((10#$id))")
         else
             id="$bn"
             name="$bn"
             sk="1_$bn"
         fi
         UNIT_IDS+=("$id"); UNIT_NAMES+=("$name"); UNIT_FILES+=("$f")
-        UNIT_DISABLED+=("$disabled"); _sortkeys+=("$sk")
+        UNIT_DISABLED+=("$disabled"); UNIT_PREAMBLE_TAGS+=("$preamble_tag")
+        _sortkeys+=("$sk")
     done
 
     if [ "${#UNIT_IDS[@]}" -eq 0 ]; then
@@ -517,16 +538,19 @@ else
     sorted_names=()
     sorted_files=()
     sorted_disabled=()
+    sorted_preamble_tags=()
     for i in "${indices[@]}"; do
         sorted_ids+=("${UNIT_IDS[$i]}")
         sorted_names+=("${UNIT_NAMES[$i]}")
         sorted_files+=("${UNIT_FILES[$i]}")
         sorted_disabled+=("${UNIT_DISABLED[$i]}")
+        sorted_preamble_tags+=("${UNIT_PREAMBLE_TAGS[$i]}")
     done
     UNIT_IDS=("${sorted_ids[@]}")
     UNIT_NAMES=("${sorted_names[@]}")
     UNIT_FILES=("${sorted_files[@]}")
     UNIT_DISABLED=("${sorted_disabled[@]}")
+    UNIT_PREAMBLE_TAGS=("${sorted_preamble_tags[@]}")
 
     # Catch collisions between any pair of (id, name) across enabled units.
     # Disabled (`_test_*.sh`) units are skipped so a disabled leftover can
@@ -581,13 +605,14 @@ if [ -n "$units_filter" ]; then
         fi
     done
 
-    new_ids=(); new_names=(); new_files=(); new_disabled=()
+    new_ids=(); new_names=(); new_files=(); new_disabled=(); new_preamble_tags=()
     for i in "${!UNIT_IDS[@]}"; do
         case " $selected_ids " in *" ${UNIT_IDS[$i]} "*)
             new_ids+=("${UNIT_IDS[$i]}")
             new_names+=("${UNIT_NAMES[$i]}")
             new_files+=("${UNIT_FILES[$i]}")
             new_disabled+=("${UNIT_DISABLED[$i]}")
+            new_preamble_tags+=("${UNIT_PREAMBLE_TAGS[$i]}")
             ;;
         esac
     done
@@ -595,6 +620,7 @@ if [ -n "$units_filter" ]; then
     UNIT_NAMES=("${new_names[@]}")
     UNIT_FILES=("${new_files[@]}")
     UNIT_DISABLED=("${new_disabled[@]}")
+    UNIT_PREAMBLE_TAGS=("${new_preamble_tags[@]}")
 fi
 
 if [ "$list_units_mode" = "true" ]; then
@@ -644,7 +670,18 @@ for _i in "${!UNIT_IDS[@]}"; do
         continue
     fi
     CURRENT_UNIT_ID="${UNIT_IDS[$_i]}"
+    CURRENT_UNIT_NAME="${UNIT_NAMES[$_i]}"
     CURRENT_UNIT_INDEX="$_i"
+    CURRENT_UNIT_PREAMBLE_TAG="${UNIT_PREAMBLE_TAGS[$_i]}"
+    if [ "$CURRENT_UNIT_PREAMBLE_TAG" != "00" ]; then
+        _pre="unit_test/preamble_${CURRENT_UNIT_PREAMBLE_TAG}.sh"
+        if [ -f "$_pre" ]; then
+            source "$_pre"
+        else
+            echo "ERROR: preamble [$_pre] not found for unit [$CURRENT_UNIT_ID]" >&2
+            exit 1
+        fi
+    fi
     source "${UNIT_FILES[$_i]}"
 done
 
