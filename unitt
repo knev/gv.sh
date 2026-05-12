@@ -15,8 +15,8 @@ usage() {
 	echo "                                Prompts: [Enter]=run, c=continue without stepping, l=continue to [unit,]line, s=skip, q=quit."
 	echo "    -l, --list-units            List discovered test units (id / name and file) and exit."
 	echo
-	echo "Naming: test_XX_YYY-NAME.sh — XX picks unit_test/preamble_XX.sh (XX=00 means no preamble),"
-	echo "        YYY is the unit id used by --units. Bare test_NN-NAME.sh is treated as XX=00."
+	echo "Naming: test_XX_YYY-NAME.sh — XX picks unit_test/preamble_XX.sh (an all-zero XX means no"
+	echo "        preamble). YYY is the unit id used by --units. Bare test_NN-NAME.sh has no preamble."
 	echo
 	echo "Note: options -c and -v are mutually exclusive."
 	echo
@@ -489,11 +489,12 @@ else
     #
     # Naming patterns recognised:
     #   test_XX_YYY-NAME.sh — XX is the preamble tag (sourced from
-    #                         unit_test/preamble_XX.sh; XX=00 means none),
+    #                         unit_test/preamble_XX.sh; an all-zero XX means
+    #                         none — "0", "00", "000" all skip the source),
     #                         YYY is the unit id used by --units / --step.
-    #   test_NN-NAME.sh     — legacy form; treated as XX=00 (no preamble),
+    #   test_NN-NAME.sh     — legacy form; no preamble sourced,
     #                         NN is the unit id.
-    #   test_NAME.sh        — non-numeric id; XX=00; sorted after numerics.
+    #   test_NAME.sh        — non-numeric id; no preamble; sorted after numerics.
     for f in unit_test/test_*.sh unit_test/_test_*.sh; do
         [ -e "$f" ] || continue
         bn_full="${f##*/}"
@@ -673,7 +674,7 @@ for _i in "${!UNIT_IDS[@]}"; do
     CURRENT_UNIT_NAME="${UNIT_NAMES[$_i]}"
     CURRENT_UNIT_INDEX="$_i"
     CURRENT_UNIT_PREAMBLE_TAG="${UNIT_PREAMBLE_TAGS[$_i]}"
-    if [ "$CURRENT_UNIT_PREAMBLE_TAG" != "00" ]; then
+    if [ "$((10#$CURRENT_UNIT_PREAMBLE_TAG))" -ne 0 ]; then
         _pre="unit_test/preamble_${CURRENT_UNIT_PREAMBLE_TAG}.sh"
         if [ -f "$_pre" ]; then
             source "$_pre"
