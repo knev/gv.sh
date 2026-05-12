@@ -511,11 +511,28 @@ else
             id="${BASH_REMATCH[2]}"
             name="${BASH_REMATCH[4]}"
             [ -z "$name" ] && name="$id"
+            # Sort key uses $((10#...)) — bash 64-bit signed arithmetic. 18
+            # digits is the largest length that always fits regardless of
+            # value; non-digit ids would also blow up there. Catch both at
+            # startup so the failure is named, not a cryptic "value too
+            # great for base" from inside the discovery loop.
+            if ! [[ "$id" =~ ^[0-9]+$ ]]; then
+                echo "ERROR: [$bn_full]: preamble-form id [$id] must be all-digit" >&2
+                exit 1
+            fi
+            if [ "${#preamble_tag}" -gt 18 ] || [ "${#id}" -gt 18 ]; then
+                echo "ERROR: [$bn_full]: preamble tag or id exceeds 18 digits (sort key would overflow)" >&2
+                exit 1
+            fi
             sk=$(printf '0_%010d_%010d' "$((10#$preamble_tag))" "$((10#$id))")
         elif [[ "$bn" =~ ^([0-9]+)(-(.+))?$ ]]; then
             id="${BASH_REMATCH[1]}"
             name="${BASH_REMATCH[3]}"
             [ -z "$name" ] && name="$id"
+            if [ "${#id}" -gt 18 ]; then
+                echo "ERROR: [$bn_full]: id exceeds 18 digits (sort key would overflow)" >&2
+                exit 1
+            fi
             sk=$(printf '0_0000000000_%010d' "$((10#$id))")
         else
             id="$bn"

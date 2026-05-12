@@ -107,5 +107,49 @@ run_test "echo \"\$PREAMBLE_08_OK\"" "0" "^yes$"
 EOF
 run_test "./unitt -u 809" "0" "PASS: .echo .\\\$PREAMBLE_08_OK.."
 
+echo
+echo "# id / preamble-tag length and shape are validated at discovery"
+
+# The sort key uses bash $((10#...)) which is signed 64-bit. 18 digits is
+# the largest length that always fits; the guard rejects 19+ digits and
+# any non-numeric id in the preamble form before discovery returns.
+
+# 18-digit id: still works.
+register_pre_file "unit_test/preamble_01.sh"
+cat > unit_test/preamble_01.sh <<'EOF'
+:
+EOF
+register_pre_file "unit_test/test_01_123456789012345678-edge18.sh"
+cat > unit_test/test_01_123456789012345678-edge18.sh <<'EOF'
+run_test "true" "0" ".*"
+EOF
+run_test "./unitt -u edge18 -l" "0" "unit:.123456789012345678.-.edge18."
+
+# 19-digit id: rejected.
+register_pre_file "unit_test/test_01_1234567890123456789-over19.sh"
+cat > unit_test/test_01_1234567890123456789-over19.sh <<'EOF'
+run_test "true" "0" "should-never-run"
+EOF
+run_test "./unitt -l" "1" "$(escape_expected "exceeds 18 digits")"
+
+# 19-digit preamble tag: same guard fires for the tag.
+register_pre_file "unit_test/test_1234567890123456789_42-bigtag.sh"
+cat > unit_test/test_1234567890123456789_42-bigtag.sh <<'EOF'
+run_test "true" "0" "should-never-run"
+EOF
+run_test "./unitt -l" "1" "$(escape_expected "exceeds 18 digits")"
+# Remove the over-length files before the next test so its error message
+# is the one that wins.
+rm -f unit_test/test_01_1234567890123456789-over19.sh \
+      unit_test/test_1234567890123456789_42-bigtag.sh
+
+# Non-numeric id in the preamble form: rejected (regex would allow letters
+# but the arithmetic sort key wouldn't).
+register_pre_file "unit_test/test_01_abc-letters.sh"
+cat > unit_test/test_01_abc-letters.sh <<'EOF'
+run_test "true" "0" "should-never-run"
+EOF
+run_test "./unitt -l" "1" "$(escape_expected "must be all-digit")"
+
 # Inline cleanup — see the trap comment above for why we do both.
 cleanup_pre_files
