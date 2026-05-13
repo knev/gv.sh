@@ -15,8 +15,9 @@ usage() {
 	echo "                                Prompts: [Enter]=run, c=continue without stepping, l=continue to [unit,]line, s=skip, q=quit."
 	echo "    -l, --list-units            List discovered test units (id / name and file) and exit."
 	echo
-	echo "Naming: test_XX_YYY-NAME.sh — XX picks unit_test/preamble_XX.sh (an all-zero XX means no"
-	echo "        preamble). YYY is the unit id used by --units. Bare test_NN-NAME.sh has no preamble."
+	echo "Naming: test_YYY_XX-NAME.sh — YYY is the unit id used by --units. XX picks"
+	echo "        unit_test/preamble_XX.sh (an all-zero XX means no preamble). Bare"
+	echo "        test_NN-NAME.sh has no preamble."
 	echo
 	echo "Note: options -c and -v are mutually exclusive."
 	echo
@@ -488,12 +489,11 @@ else
     # are never sourced and cannot be selected by --units / --step.
     #
     # Naming patterns recognised:
-    #   test_XX_YYY-NAME.sh — XX is the preamble tag (sourced from
+    #   test_YYY_XX-NAME.sh — YYY is the unit id used by --units / --step.
+    #                         XX is the preamble tag (sourced from
     #                         unit_test/preamble_XX.sh; an all-zero XX means
-    #                         none — "0", "00", "000" all skip the source),
-    #                         YYY is the unit id used by --units / --step.
-    #   test_NN-NAME.sh     — legacy form; no preamble sourced,
-    #                         NN is the unit id.
+    #                         none — "0", "00", "000" all skip the source).
+    #   test_NN-NAME.sh     — no preamble sourced; NN is the unit id.
     #   test_NAME.sh        — non-numeric id; no preamble; sorted after numerics.
     for f in unit_test/test_*.sh unit_test/_test_*.sh; do
         [ -e "$f" ] || continue
@@ -507,24 +507,24 @@ else
         fi
         preamble_tag="00"
         if [[ "$bn" =~ ^([0-9]+)_([0-9a-zA-Z]+)(-(.+))?$ ]]; then
-            preamble_tag="${BASH_REMATCH[1]}"
-            id="${BASH_REMATCH[2]}"
+            id="${BASH_REMATCH[1]}"
+            preamble_tag="${BASH_REMATCH[2]}"
             name="${BASH_REMATCH[4]}"
             [ -z "$name" ] && name="$id"
             # Sort key uses $((10#...)) — bash 64-bit signed arithmetic. 18
             # digits is the largest length that always fits regardless of
-            # value; non-digit ids would also blow up there. Catch both at
-            # startup so the failure is named, not a cryptic "value too
-            # great for base" from inside the discovery loop.
-            if ! [[ "$id" =~ ^[0-9]+$ ]]; then
-                echo "ERROR: [$bn_full]: preamble-form id [$id] must be all-digit" >&2
+            # value; non-digit preamble tags would also blow up there.
+            # Catch both at startup so the failure is named, not a cryptic
+            # "value too great for base" from inside the discovery loop.
+            if ! [[ "$preamble_tag" =~ ^[0-9]+$ ]]; then
+                echo "ERROR: [$bn_full]: preamble-form tag [$preamble_tag] must be all-digit" >&2
                 exit 1
             fi
-            if [ "${#preamble_tag}" -gt 18 ] || [ "${#id}" -gt 18 ]; then
-                echo "ERROR: [$bn_full]: preamble tag or id exceeds 18 digits (sort key would overflow)" >&2
+            if [ "${#id}" -gt 18 ] || [ "${#preamble_tag}" -gt 18 ]; then
+                echo "ERROR: [$bn_full]: id or preamble tag exceeds 18 digits (sort key would overflow)" >&2
                 exit 1
             fi
-            sk=$(printf '0_%010d_%010d' "$((10#$preamble_tag))" "$((10#$id))")
+            sk=$(printf '0_%010d_%010d' "$((10#$id))" "$((10#$preamble_tag))")
         elif [[ "$bn" =~ ^([0-9]+)(-(.+))?$ ]]; then
             id="${BASH_REMATCH[1]}"
             name="${BASH_REMATCH[3]}"
@@ -533,7 +533,7 @@ else
                 echo "ERROR: [$bn_full]: id exceeds 18 digits (sort key would overflow)" >&2
                 exit 1
             fi
-            sk=$(printf '0_0000000000_%010d' "$((10#$id))")
+            sk=$(printf '0_%010d_0000000000' "$((10#$id))")
         else
             id="$bn"
             name="$bn"
