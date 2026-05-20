@@ -153,11 +153,17 @@ status_matches() {
     fi
 }
 
-# !!!NOTE:  this means we can not use [] and () in the regex's passed to run_test()
+# Escape regex metacharacters in a literal expected-string so it
+# matches as text. `[] () ? ! |` are escaped outright. A `*` is
+# escaped too — EXCEPT when it follows `.`, so the deliberate `.*`
+# wildcard (used in expected strings to span variable text) keeps
+# working while a bare `*` (e.g. in the grammar token `/*`) matches
+# literally.
 #
+# !!!NOTE: `.*` stays a wildcard; everything else passed here is literal.
 escape_expected() {
     local raw_pattern="$1"
-    echo "$raw_pattern" | sed 's/\[/\\[/g; s/\]/\\]/g; s/(/\\(/g; s/)/\\)/g; s/?/\\?/g; s/!/\\!/g; s/|/\\|/g'
+    echo "$raw_pattern" | sed 's/\[/\\[/g; s/\]/\\]/g; s/(/\\(/g; s/)/\\)/g; s/?/\\?/g; s/!/\\!/g; s/|/\\|/g; s/\([^.]\)\*/\1\\*/g'
 }
 	
 # Helper function to run commands and check their output
