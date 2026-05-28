@@ -4,7 +4,7 @@
 
 usage() {
 	echo
-    echo "Usage: $(basename "$0") [-c|-v] [-u SEL] [-x SEL] [--step [ID,]LINENO] [-l]"
+    echo "Usage: $(basename "$0") [-c|-v] [-u SEL] [-x SEL] [-t SECS] [--step [ID,]LINENO] [-l]"
     echo "Options:"
     echo "    -c, --continue              Continue processing tests even in the event of failure."
 	echo "    -v, --verbose               Display all output regardless if pass or fail."
@@ -13,6 +13,8 @@ usage() {
     echo "                                list of ids/names and/or numeric ranges (e.g. 0800-0835)."
     echo "    -x, --exclude SEL           Exclude the selected units (same SEL syntax). Applies on top"
     echo "                                of -u, or to all units when -u is omitted (e.g. -x 0316)."
+    echo "    -t, --timeout SECS          Kill any single run_test that runs longer than SECS and fail it"
+    echo "                                (0 disables; overrides UNITT_TIMEOUT). With -c the suite continues."
     echo "    --step [ID,]LINENO          Pause before each run_test call in test unit ID once its caller line is >= LINENO."
 	echo "                                ID is required when more than one test unit is present after filtering."
 	echo "                                Prompts: [Enter]=run, c=continue without stepping, l=continue to [unit,]line, s=skip, q=quit."
@@ -32,6 +34,7 @@ verbose_mode="false"
 list_units_mode="false"
 units_filter=""
 exclude_filter=""
+timeout_flag=""
 step_line=""
 step_unit=""
 pass_count=0
@@ -52,13 +55,20 @@ fail_count=0
 # Caveats nothing portable fixes: a SIGKILL of unitt can't be trapped, and a
 # directed signal received while blocked in a foreground test command runs the
 # trap only after that command returns.
+# Signal a process and all its descendants, deepest first (so a parent doesn't
+# reparent its children to init before they're reached). $2 is the signal name,
+# default TERM. Used by the EXIT reap and by run_capture's timeout watchdog.
 _unitt_reap_tree() {
-    local p
-    for p in $(pgrep -P "$1" 2>/dev/null); do _unitt_reap_tree "$p"; done
-    [ "$1" = "$$" ] || kill -TERM "$1" 2>/dev/null
+    local root="$1" sig="${2:-TERM}" p
+    for p in $(pgrep -P "$root" 2>/dev/null); do _unitt_reap_tree "$p" "$sig"; done
+    [ "$root" = "$$" ] || kill "-$sig" "$root" 2>/dev/null
 }
 _unitt_reap() {
     local me="$$" pgid p
+    # A timeout-path capture in flight leaves a temp dir behind on a signal;
+    # run_capture clears _rt_tmpd on its normal path, so a non-empty value here
+    # means we were interrupted mid-capture.
+    [ -n "${_rt_tmpd:-}" ] && rm -rf "$_rt_tmpd" 2>/dev/null
     pgid=$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' ')
     if [ -n "$pgid" ] && [ "$pgid" = "$me" ]; then
         for p in $(ps -ax -o pid=,pgid= 2>/dev/null \
@@ -149,6 +159,13 @@ while [ $# -gt 0 ]; do
             fi
             shift 2
             ;;
+        -t|--timeout)
+            if ! val=$(need_value "--timeout" "--timeout SECS" "$#" "${2-}"); then
+                usage; exit 2
+            fi
+            timeout_flag="$val"
+            shift 2
+            ;;
         --step)
             if ! val=$(need_value "--step" "--step [ID,]LINENO" "$#" "${2-}"); then
                 usage; exit 2
@@ -178,6 +195,27 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# Per-test timeout in seconds. The baseline is seeded from UNITT_TIMEOUT
+# (0/unset disables it); the --timeout flag, when given, overrides the env var.
+# The baseline is immutable; unitt_timeout is the live value run_test reads and
+# is reset to the baseline before each unit, so a preamble may set it to scope a
+# timeout to its unit without leaking into later units.
+unitt_timeout_baseline=${UNITT_TIMEOUT:-0}
+# A bad env var isn't a CLI misuse, so it errors without printing usage; a bad
+# --timeout flag does print usage. Both exit 2.
+if [ -n "${UNITT_TIMEOUT:-}" ] && ! [[ "$UNITT_TIMEOUT" =~ ^[0-9]+$ ]]; then
+    echo "UNITT_TIMEOUT: expected a non-negative integer (seconds), got [$UNITT_TIMEOUT]" >&2
+    exit 2
+fi
+if [ -n "$timeout_flag" ]; then
+    if ! [[ "$timeout_flag" =~ ^[0-9]+$ ]]; then
+        echo "timeout: expected a non-negative integer (seconds), got [$timeout_flag]" >&2
+        usage; exit 2
+    fi
+    unitt_timeout_baseline="$timeout_flag"
+fi
+unitt_timeout="$unitt_timeout_baseline"
 
 #	# Check for mutually exclusive flags
 #	mutual_exclusive_count=0
@@ -219,12 +257,95 @@ escape_expected() {
     echo "$raw_pattern" | sed 's/\[/\\[/g; s/\]/\\]/g; s/(/\\(/g; s/)/\\)/g; s/?/\\?/g; s/!/\\!/g; s/|/\\|/g; s/\([^.]\)\*/\1\\*/g'
 }
 	
+# Run $cmd with stdin from /dev/null, combining stdout+stderr, and capture both
+# its output and exit status into the globals _rt_output / _rt_status.
+# _rt_timed_out is set "true" (and _rt_status forced to 124, the timeout(1)
+# convention) when a positive $2 timeout elapses and the command is killed.
+#
+# eval runs in a subshell of THIS shell so a test command that is itself a
+# shell function (escape_expected, status_matches, preamble-defined helpers)
+# still resolves. Globals are used rather than command substitution because the
+# timeout path must `wait` in this shell — a subshell's background PID isn't
+# waitable by the parent.
+#
+# Invariant: $2 (timeout) is a validated non-negative integer — every caller
+# (startup for the env/flag baseline, run_test for the per-test arg) checks it,
+# so `[ "$timeout" -le 0 ]` below is safe.
+run_capture() {
+    local cmd="$1" timeout="$2"
+    _rt_timed_out="false"
+
+    if [ "$timeout" -le 0 ]; then
+        # No timeout: the historical fd trick, capturing output+status in one
+        # subshell. stdin from /dev/null so a bare command that reads stdin when
+        # it isn't a tty can't block on an inherited, never-EOF stdin; a command
+        # that pipes its own stdin (`echo ... | cmd`) still gets its pipe.
+        local full_output
+        full_output=$( { eval "$cmd" </dev/null 2>&1; echo $? >&3; } 3>&1 | cat )
+        _rt_status=${full_output##*$'\n'}
+        _rt_output=${full_output%$'\n'*}
+        _rt_output=${_rt_output%$'\n'}
+        return 0
+    fi
+
+    # Timeout path: run the command in the background under a watchdog. `wait`
+    # reaps it the instant it finishes, so a fast test pays no polling cost; a
+    # wedged one is TERM'd (then KILL'd after a 1s grace) once the watchdog's
+    # sleep elapses. A marker file disambiguates a real timeout from a command
+    # that merely exited non-zero.
+    local tmpd
+    if ! tmpd=$(mktemp -d "${TMPDIR:-/tmp}/unitt_rc.XXXXXX") || [ -z "$tmpd" ]; then
+        echo "run_capture: failed to create temp dir (check \$TMPDIR)" >&2
+        exit 2
+    fi
+    # Track it so the EXIT reap can remove it if a signal interrupts us here.
+    _rt_tmpd="$tmpd"
+    ( eval "$cmd" </dev/null ) >"$tmpd/out" 2>&1 &
+    local cmd_pid=$!
+    (
+        # Narrow race: if the command exits in the same instant this sleep
+        # elapses, kill -0 may still see it and flag a (harmless) spurious
+        # timeout. Acceptable for second-granularity timeouts.
+        sleep "$timeout"
+        if kill -0 "$cmd_pid" 2>/dev/null; then
+            : > "$tmpd/timed_out"
+            # Kill the whole tree, not just the eval subshell: a compound or
+            # backgrounding command has children that would otherwise reparent
+            # and leak. TERM first, then KILL after a 1s grace.
+            _unitt_reap_tree "$cmd_pid" TERM
+            sleep 1
+            _unitt_reap_tree "$cmd_pid" KILL
+        fi
+    ) &
+    local wd_pid=$!
+    wait "$cmd_pid" 2>/dev/null
+    _rt_status=$?
+    kill "$wd_pid" 2>/dev/null
+    wait "$wd_pid" 2>/dev/null
+    if [ -e "$tmpd/timed_out" ]; then
+        _rt_timed_out="true"
+        _rt_status=124
+    fi
+    _rt_output=$(cat "$tmpd/out" 2>/dev/null)
+    _rt_output=${_rt_output%$'\n'}
+    rm -rf "$tmpd"
+    _rt_tmpd=""
+    return 0
+}
+
 # Helper function to run commands and check their output
 run_test() {
     local cmd="$1"
     local expected_status="$2"
     local expected_regex="$3"
     local not_flag="${4:-false}"  # Default not_flag to false if not provided
+    # Optional 5th arg: a per-test timeout (seconds) overriding the global
+    # unitt_timeout for this call alone. Empty means "use the global".
+    local test_timeout="${5:-$unitt_timeout}"
+    if ! [[ "$test_timeout" =~ ^[0-9]+$ ]]; then
+        echo "run_test: timeout must be a non-negative integer, got [$test_timeout]" >&2
+        exit 2
+    fi
 
     # --step: pause before running once the caller's line number in the
     # currently-sourced test unit is >= $step_line and the unit matches
@@ -348,16 +469,31 @@ run_test() {
 	#		- output=${output%$'\n'*} removes the last line (which is the exit status) from the output.
 
 
-    # Capture command output and exit status.
-    # stdin redirected from /dev/null so a command that reads stdin when it's
-    # not a tty (entropy-cli slurps stdin for node:meta-set) can't block on an
-    # inherited, never-EOF stdin when unitt is launched non-interactively. A
-    # test that pipes its own stdin (`echo ... | entropy-cli ...`) still gets
-    # the pipe; bare invocations get an instant EOF instead of hanging.
-    local full_output=$( { eval "$cmd" </dev/null 2>&1; echo $? >&3; } 3>&1 | cat )
-    local exit_status=${full_output##*$'\n'}
-    local output=${full_output%$'\n'*}
-	output=${output%$'\n'} # Remove the last newline
+    # Capture combined stdout+stderr and exit status (run_capture honors the
+    # timeout: a wedged command is killed and surfaces as exit 124).
+    run_capture "$cmd" "$test_timeout"
+    local output="$_rt_output"
+    local exit_status="$_rt_status"
+
+    # A timed-out command is always a failure, regardless of the expected
+    # status/regex — a hang must never be reported as a pass. Show whatever it
+    # printed before the kill, and honor -c like any other failure.
+    if [ "$_rt_timed_out" = "true" ]; then
+        echo
+        echo "# FAIL: [$cmd][TIMEOUT ${test_timeout}s], line no. [${BASH_LINENO[0]}]"
+        echo "# Test exceeded the ${test_timeout}s per-test timeout and was killed."
+        echo "#----"
+        echo "$output" | sed 's/^/  /'
+        echo "#----"
+        echo
+        fail_count=$((fail_count + 1))
+        if [ "$continue_mode" != "true" ]; then
+            echo "To be continued ..."
+            echo
+            exit 1
+        fi
+        return 0
+    fi
 
 	local ok="no"
 	local status_ok="no"
@@ -830,6 +966,9 @@ for _i in "${!UNIT_IDS[@]}"; do
     CURRENT_UNIT_NAME="${UNIT_NAMES[$_i]}"
     CURRENT_UNIT_INDEX="$_i"
     CURRENT_UNIT_PREAMBLE_TAG="${UNIT_PREAMBLE_TAGS[$_i]}"
+    # Reset to the baseline so a preamble's timeout override is scoped to its
+    # own unit and doesn't leak into the next.
+    unitt_timeout="$unitt_timeout_baseline"
     if [ "$((10#$CURRENT_UNIT_PREAMBLE_TAG))" -ne 0 ]; then
         _pre="unit_test/preamble_${CURRENT_UNIT_PREAMBLE_TAG}.sh"
         if [ -f "$_pre" ]; then
