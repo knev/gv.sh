@@ -87,6 +87,9 @@ echo "# run_test verbose-mode labeling (regression: '-v' used to print PASS for 
 # itself, so any failure under -v was mislabelled "# PASS:". These tests
 # drive ./unitt -v with a tiny custom core file (UNIT_TEST_CORE) so we can
 # trigger each outcome without contaminating this main suite.
+#
+# Exit status: an all-pass run exits 0; a run with any failure exits 1 even
+# under -c (the SUMMARY/exit-code contract — see test_96-exit_codes.sh).
 
 vt_dir=$(mktemp -d)
 trap "rm -rf '$vt_dir'" EXIT
@@ -99,7 +102,7 @@ run_test "UNIT_TEST_CORE='$vt_dir/pass.sh' ./unitt -v" \
     "0" "$(escape_expected '# PASS: [echo hello][0]')"
 
 run_test "UNIT_TEST_CORE='$vt_dir/fail_regex.sh' ./unitt -v -c" \
-    "0" "$(escape_expected '# FAIL: [echo hello][0]')"
+    "1" "$(escape_expected '# FAIL: [echo hello][0]')"
 
 run_test "UNIT_TEST_CORE='$vt_dir/fail_status.sh' ./unitt -v -c" \
-    "0" "$(escape_expected '# FAIL: [echo hello][0]')"
+    "1" "$(escape_expected '# FAIL: [echo hello][0]')"

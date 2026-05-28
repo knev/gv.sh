@@ -91,6 +91,9 @@ EOF
 run_test "./unitt -u 888" "1" \
     "$(escape_expected "ERROR: preamble [unit_test/preamble_88.sh] not found for unit [888]")"
 run_test "./unitt -u 888" "1" "should-never-run" "true"
+# A runtime setup failure exits 2 — the same class as usage/selection errors
+# (the suite never ran a test). See test_96-exit_codes.sh for the contract.
+run_test "./unitt -u 888 >/dev/null 2>&1; echo rc=\$?" "0" "^rc=2$"
 
 echo
 echo "# leading-zero preamble tag (08) is parsed as base-10"
