@@ -12,6 +12,8 @@ files, which `unitt` discovers and sources automatically.
 ./unitt -c                       # continue past failures instead of stopping
 ./unitt -l                       # list discovered test units and exit (--list-units)
 ./unitt -u core                  # run only the 'core' unit (--units core)
+./unitt -u 0800-0835             # run every unit with an id in [0800, 0835] (a range)
+./unitt -x 0316                  # run everything except unit 0316 (--exclude)
 ./unitt -u 99,core --step 42     # run units 99 then core; step from line 42
 ./unitt --step core,42           # interactive step-through, from test_core.sh line 42 onward
 ./unitt -h                       # help
@@ -104,15 +106,45 @@ Rename the file (drop the leading `_`) to re-enable.
 
 ### Selecting which units to run
 
-`-u, --units ID[,ID...]` filters the suite to the listed units (resolved by
-number or name; duplicates de-duped silently). Order in the run is always the
-discovery order, regardless of how you list them on the command line:
+Both `-u` and `-x` take a **SEL** — a comma-separated list whose entries are
+unit ids, name aliases, and/or **numeric ranges** `LO-HI`:
+
+| Entry        | Selects                                                          |
+|--------------|------------------------------------------------------------------|
+| `0316`       | the unit whose id is `0316`                                      |
+| `validate`   | the unit whose name alias is `validate`                          |
+| `0800-0835`  | every numbered unit whose id is in `[0800, 0835]` (inclusive)    |
+
+Ranges are inclusive and zero-pad-tolerant (`0800-0835` and `800-835` compare
+numerically). A range only ever matches **numbered** units — non-numeric ids
+like `core` are never swept up by one. Disabled units inside a range are
+silently skipped (a range is a bulk selector), but naming a disabled unit
+*explicitly* is still an error. The expanded set is de-duplicated.
+
+`-u, --units SEL` filters the suite to the selected units. Order in the run is
+always the discovery order, regardless of how you list them:
 
 ```
 ./unitt -u core             # only test_core.sh
 ./unitt -u 99,core          # both, in discovery order
+./unitt -u 0800-0835        # a whole range
+./unitt -u 0073,0800-0835,validate   # ids, a range, and a name in one SEL
 ./unitt -u discovery -l     # confirm the filter took effect
 ```
+
+`-x, --exclude SEL` removes the selected units. It applies *on top of* `-u`
+(subtracted from that selection) or, when `-u` is omitted, to **all** enabled
+units — so "run everything except the one flaky test" is just `-x`:
+
+```
+./unitt -x 0316             # everything except unit 0316
+./unitt -u 0800-0835 -x 0820   # the range minus one id
+./unitt -x 0316,0800-0835      # exclude an id and a whole range
+```
+
+If `-u`/`-x` together leave nothing to run, unitt exits `2` with
+`units: selection is empty after exclusions`. An inverted range (`0835-0800`)
+or a range that matches no enabled unit is likewise a `2`.
 
 ## Writing a test
 
@@ -177,8 +209,36 @@ On fail (or always, in `-v` mode):
 `line no.` is the line in the test unit's source file where `run_test` was
 called, which is what `--step` keys off of.
 
-Without `-c`, the harness prints `To be continued ...` and exits `1` on the
-first failure.
+Without `-c`, the harness prints `To be continued ...` and stops on the first
+failure. With `-c` it runs the whole suite and reports the tally at the end.
+
+### Summary line and exit codes
+
+Every run ends with a machine-readable summary on its own line:
+
+```
+SUMMARY: <N> passed, <M> failed
+```
+
+The counters are bumped at each pass/fail, independent of marker formatting, so
+`grep '^SUMMARY:'` is a reliable way to scrape the result. The process exit code
+follows the grep/pytest convention so a script can branch on it without parsing
+output:
+
+| Exit | Meaning                                                                       |
+|------|-------------------------------------------------------------------------------|
+| `0`  | all tests passed                                                              |
+| `1`  | the suite ran but a test failed (true with **and** without `-c` — `-c` no longer hides failures from the exit code) |
+| `2`  | the suite never ran a test: a usage error, an unknown/disabled unit, a bad range, or an empty selection |
+
+```bash
+./unitt -c
+case $? in
+  0) echo "green" ;;
+  1) echo "test failures" ;;
+  2) echo "bad invocation" ;;
+esac
+```
 
 ## Step mode
 
