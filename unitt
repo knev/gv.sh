@@ -34,6 +34,8 @@ units_filter=""
 exclude_filter=""
 step_line=""
 step_unit=""
+pass_count=0
+fail_count=0
 
 parse_step_value() {
     # Parse the value of --step=... into the globals step_unit/step_line.
@@ -91,32 +93,32 @@ while [ $# -gt 0 ]; do
             ;;
         -u|--units)
             if ! val=$(need_value "--units" "--units ID[,ID...]" "$#" "${2-}"); then
-                usage; exit 1
+                usage; exit 2
             fi
             units_filter="$val"
             if [ -z "$units_filter" ]; then
                 echo "units: missing value (use --units ID[,ID...])" >&2
-                usage; exit 1
+                usage; exit 2
             fi
             shift 2
             ;;
         -x|--exclude)
             if ! val=$(need_value "--exclude" "--exclude ID[,ID...]" "$#" "${2-}"); then
-                usage; exit 1
+                usage; exit 2
             fi
             exclude_filter="$val"
             if [ -z "$exclude_filter" ]; then
                 echo "exclude: missing value (use --exclude ID[,ID...])" >&2
-                usage; exit 1
+                usage; exit 2
             fi
             shift 2
             ;;
         --step)
             if ! val=$(need_value "--step" "--step [ID,]LINENO" "$#" "${2-}"); then
-                usage; exit 1
+                usage; exit 2
             fi
             if ! parse_step_value "$val"; then
-                usage; exit 1
+                usage; exit 2
             fi
             shift 2
             ;;
@@ -126,17 +128,17 @@ while [ $# -gt 0 ]; do
             ;;
         --*)
             echo "Invalid option: $arg" >&2
-            usage; exit 1
+            usage; exit 2
             ;;
         -[a-zA-Z]*)
             # Any short-form starting with -X that didn't match an explicit
             # case above is an unknown short flag (or unsupported cluster).
             echo "${0##*/}: illegal option -- ${arg#-}" >&2
-            usage; exit 1
+            usage; exit 2
             ;;
         *)
             echo "Unexpected argument: $arg" >&2
-            usage; exit 1
+            usage; exit 2
             ;;
     esac
 done
@@ -330,6 +332,7 @@ run_test() {
 			ok="YES"
 			if status_matches "$exit_status" "$expected_status" && [ "$verbose_mode" != "true" ]; then
 				echo "PASS: [$cmd][$exit_status] ! \"$expected_regex\", line no. [${BASH_LINENO[0]}]"
+				pass_count=$((pass_count + 1))
 				return 0
 			fi 
 		fi
@@ -337,8 +340,10 @@ run_test() {
 		echo
 		if [ "$ok" = "YES" ] && [ "$status_ok" = "YES" ]; then
 			echo "# PASS: [$cmd][$exit_status], line no. [${BASH_LINENO[0]}]"
+			pass_count=$((pass_count + 1))
 		else
 			echo "# FAIL: [$cmd][$exit_status], line no. [${BASH_LINENO[0]}]"
+			fail_count=$((fail_count + 1))
 		fi
 		echo "# Expected EXIT status [$status_ok]: [$expected_status]"
 		echo "# Expected to NOT contain [$ok]: \"$expected_regex\""
@@ -360,6 +365,7 @@ run_test() {
 			ok="YES"
 			if status_matches "$exit_status" "$expected_status" && [ "$verbose_mode" != "true" ]; then
 				echo "PASS: [$cmd][$exit_status] \"$expected_regex\", line no. [${BASH_LINENO[0]}]"
+				pass_count=$((pass_count + 1))
 				return 0
 			fi
 		fi
@@ -367,8 +373,10 @@ run_test() {
 		echo
 		if [ "$ok" = "YES" ] && [ "$status_ok" = "YES" ]; then
 			echo "# PASS: [$cmd][$exit_status], line no. [${BASH_LINENO[0]}]"
+			pass_count=$((pass_count + 1))
 		else
 			echo "# FAIL: [$cmd][$exit_status], line no. [${BASH_LINENO[0]}]"
+			fail_count=$((fail_count + 1))
 		fi
 		echo "# Expected EXIT status [$status_ok]: [$expected_status]"
 		echo "# Expected to contain [$ok]: \"$expected_regex\""
@@ -605,11 +613,11 @@ else
             # "value too great for base" from inside the discovery loop.
             if ! [[ "$preamble_tag" =~ ^[0-9]+$ ]]; then
                 echo "ERROR: [$bn_full]: preamble-form tag [$preamble_tag] must be all-digit" >&2
-                exit 1
+                exit 2
             fi
             if [ "${#id}" -gt 18 ] || [ "${#preamble_tag}" -gt 18 ]; then
                 echo "ERROR: [$bn_full]: id or preamble tag exceeds 18 digits (sort key would overflow)" >&2
-                exit 1
+                exit 2
             fi
             sk=$(printf '0_%010d_%010d' "$((10#$id))" "$((10#$preamble_tag))")
         elif [[ "$bn" =~ ^([0-9]+)(-(.+))?$ ]]; then
@@ -618,7 +626,7 @@ else
             [ -z "$name" ] && name="$id"
             if [ "${#id}" -gt 18 ]; then
                 echo "ERROR: [$bn_full]: id exceeds 18 digits (sort key would overflow)" >&2
-                exit 1
+                exit 2
             fi
             sk=$(printf '0_%010d_0000000000' "$((10#$id))")
         else
@@ -633,7 +641,7 @@ else
 
     if [ "${#UNIT_IDS[@]}" -eq 0 ]; then
         echo "ERROR: no test units found in unit_test/test_*.sh" >&2
-        exit 1
+        exit 2
     fi
 
     indices=( $(for i in "${!_sortkeys[@]}"; do
@@ -667,13 +675,13 @@ else
         name="${UNIT_NAMES[$i]}"
         case " $seen " in *" $id "*)
             echo "ERROR: duplicate test unit identifier [$id]" >&2
-            exit 1 ;;
+            exit 2 ;;
         esac
         seen="$seen $id"
         if [ "$name" != "$id" ]; then
             case " $seen " in *" $name "*)
                 echo "ERROR: duplicate test unit identifier [$name]" >&2
-                exit 1 ;;
+                exit 2 ;;
             esac
             seen="$seen $name"
         fi
@@ -689,7 +697,7 @@ if [ -n "$units_filter" ] || [ -n "$exclude_filter" ]; then
     # Base set.
     if [ -n "$units_filter" ]; then
         if ! selected_ids=$(expand_unit_list "$units_filter" "units"); then
-            usage; exit 1
+            usage; exit 2
         fi
     else
         selected_ids=""
@@ -703,7 +711,7 @@ if [ -n "$units_filter" ] || [ -n "$exclude_filter" ]; then
     excluded_ids=""
     if [ -n "$exclude_filter" ]; then
         if ! excluded_ids=$(expand_unit_list "$exclude_filter" "exclude"); then
-            usage; exit 1
+            usage; exit 2
         fi
     fi
     final_ids=""
@@ -715,7 +723,7 @@ if [ -n "$units_filter" ] || [ -n "$exclude_filter" ]; then
     done
     if [ -z "$final_ids" ]; then
         echo "units: selection is empty after exclusions" >&2
-        exit 1
+        exit 2
     fi
 
     new_ids=(); new_names=(); new_files=(); new_disabled=(); new_preamble_tags=()
@@ -758,7 +766,7 @@ if [ -n "$step_line" ]; then
         if [ "$enabled_count" -ne 1 ]; then
             echo "step: expected ID,LINE (multiple test units present)" >&2
             usage
-            exit 1
+            exit 2
         fi
         step_unit="$sole_enabled_id"
     else
@@ -767,13 +775,13 @@ if [ -n "$step_line" ]; then
             if [ "${UNIT_DISABLED[$ridx]}" = "true" ]; then
                 echo "step: test unit [$step_unit] is disabled" >&2
                 usage
-                exit 1
+                exit 2
             fi
             step_unit="$resolved"
         else
             echo "step: unknown test unit [$step_unit]" >&2
             usage
-            exit 1
+            exit 2
         fi
     fi
 fi
@@ -792,7 +800,7 @@ for _i in "${!UNIT_IDS[@]}"; do
             source "$_pre"
         else
             echo "ERROR: preamble [$_pre] not found for unit [$CURRENT_UNIT_ID]" >&2
-            exit 1
+            exit 2
         fi
     fi
     source "${UNIT_FILES[$_i]}"
@@ -802,7 +810,10 @@ done
 
 echo
 echo "Done."
+echo "SUMMARY: $pass_count passed, $fail_count failed"
 echo
+[ "$fail_count" -gt 0 ] && exit 1
+exit 0
 
 
 
