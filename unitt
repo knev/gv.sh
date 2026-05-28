@@ -37,6 +37,42 @@ step_unit=""
 pass_count=0
 fail_count=0
 
+# Generic cleanup: reap helper processes a test spawned (e.g. daemons) so a
+# finished OR interrupted run doesn't orphan them. No knowledge of WHAT tests
+# launch, so it stays project-agnostic.
+#
+# When unitt leads its own process group (the usual interactive `./unitt`
+# case), anything ELSE in that group is something this run spawned — even a
+# reparented orphan keeps the group id (helpers that don't `setsid` do), so a
+# group-wide reap catches them. Under script/automation unitt may share its
+# caller's group; group-killing would be unsafe, so we fall back to walking our
+# own descendant tree (best effort — a reparented orphan escapes it; the
+# project's own reap, e.g. a preamble, covers that case).
+#
+# Caveats nothing portable fixes: a SIGKILL of unitt can't be trapped, and a
+# directed signal received while blocked in a foreground test command runs the
+# trap only after that command returns.
+_unitt_reap_tree() {
+    local p
+    for p in $(pgrep -P "$1" 2>/dev/null); do _unitt_reap_tree "$p"; done
+    [ "$1" = "$$" ] || kill -TERM "$1" 2>/dev/null
+}
+_unitt_reap() {
+    local me="$$" pgid p
+    pgid=$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' ')
+    if [ -n "$pgid" ] && [ "$pgid" = "$me" ]; then
+        for p in $(ps -ax -o pid=,pgid= 2>/dev/null \
+                   | awk -v g="$pgid" -v me="$me" '$2==g && $1!=me {print $1}'); do
+            kill -TERM "$p" 2>/dev/null
+        done
+    else
+        _unitt_reap_tree "$me"
+    fi
+}
+trap '_unitt_reap' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+
 parse_step_value() {
     # Parse the value of --step=... into the globals step_unit/step_line.
     # Echoes errors and returns non-zero on bad input.
