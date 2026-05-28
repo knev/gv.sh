@@ -14,6 +14,8 @@ files, which `unitt` discovers and sources automatically.
 ./unitt -u core                  # run only the 'core' unit (--units core)
 ./unitt -u 0800-0835             # run every unit with an id in [0800, 0835] (a range)
 ./unitt -x 0316                  # run everything except unit 0316 (--exclude)
+./unitt -t 60                    # fail (and, with -c, skip past) any test that runs > 60s
+UNITT_TIMEOUT=60 ./unitt -c      # same per-test timeout via the environment
 ./unitt -u 99,core --step 42     # run units 99 then core; step from line 42
 ./unitt --step core,42           # interactive step-through, from test_core.sh line 42 onward
 ./unitt -h                       # help
@@ -151,7 +153,7 @@ or a range that matches no enabled unit is likewise a `2`.
 Tests are calls to `run_test`:
 
 ```bash
-run_test "<command>" "<expected_exit>" "<expected_regex>" [not_flag]
+run_test "<command>" "<expected_exit>" "<expected_regex>" [not_flag] [timeout]
 ```
 
 | Arg               | Meaning                                                                 |
@@ -160,6 +162,7 @@ run_test "<command>" "<expected_exit>" "<expected_regex>" [not_flag]
 | `expected_exit`   | `0` for success, anything else for failure. Matched loosely: 0-vs-0 or non-zero-vs-non-zero is a match (the exact non-zero code is not compared). |
 | `expected_regex`  | Bash `[[ =~ ]]` regex matched against combined stdout+stderr.           |
 | `not_flag`        | Optional. `true` inverts the regex check (output must **not** match).   |
+| `timeout`         | Optional. Per-test timeout in seconds, overriding the global for this one call (see [Per-test timeout](#per-test-timeout)). `0` disables it. |
 
 ### Escaping regex metacharacters
 
@@ -240,6 +243,53 @@ case $? in
 esac
 ```
 
+## Per-test timeout
+
+A single wedged command can otherwise hang the whole run indefinitely. Set a
+per-test timeout (in **seconds**) and any one `run_test` that runs longer is
+killed and recorded as a failure — so with `-c` the suite skips past the hang
+and still produces a complete signal. A timeout is an ordinary failure: it
+counts toward the `SUMMARY` tally, and (like any failure) it aborts the run
+without `-c` or is stepped over with it. The failure block names the limit and
+shows whatever the command printed before the kill:
+
+```
+# FAIL: [the-wedged-cmd][TIMEOUT 60s], line no. [42]
+# Test exceeded the 60s per-test timeout and was killed.
+```
+
+The limit can be set at four scopes, each overriding the broader one:
+
+| Scope        | How                                              | Applies to                    |
+|--------------|--------------------------------------------------|-------------------------------|
+| Global (env) | `UNITT_TIMEOUT=60 ./unitt`                        | every `run_test` in the run   |
+| Global (flag)| `./unitt --timeout 60` (or `-t 60`)               | every `run_test`; **wins over the env var** |
+| Per-unit     | `unitt_timeout=120` inside a preamble             | the unit(s) using that preamble |
+| Per-test     | a 5th arg: `run_test "$cmd" "$st" "$re" false 300`| that one call                 |
+
+```bash
+UNITT_TIMEOUT=60 ./unitt -c        # 60s for everything
+./unitt -t 60 -c                   # same, via flag (overrides UNITT_TIMEOUT)
+```
+
+```bash
+# unit_test/preamble_05.sh — scoped to units that use tag _05
+unitt_timeout=120
+```
+
+```bash
+# one known-slow test gets more room; the rest keep the global limit
+run_test "slow-thing" "0" ".*" false 300
+```
+
+The per-unit hook works because `run_test` reads the live `unitt_timeout`
+variable, and the value is reset to the global baseline before each unit — so a
+preamble's override stays scoped to its own unit and doesn't leak into the next.
+
+A timeout of `0` disables the timeout (the default). A non-integer value —
+whether from `UNITT_TIMEOUT`, `--timeout`, or the 5th arg — is a startup/usage
+error and exits `2`.
+
 ## Step mode
 
 `--step [ID,]LINENO` pauses before every `run_test` whose caller line is
@@ -290,3 +340,12 @@ output=${full_output%$'\n'*}
 
 The exit status is appended after a newline, then split off. This is the only
 reliable way in pure Bash to get both at once from a single subshell.
+
+When a [per-test timeout](#per-test-timeout) is in force, `run_capture` takes a
+different path: it runs the command in the background, captures its output to a
+temp file, and a watchdog `wait`s for it — reaping it the instant it finishes
+(so a fast test pays no polling cost) or, once the limit elapses, sending
+`SIGTERM` and then `SIGKILL` after a 1s grace. A marker file distinguishes a
+real timeout (reported as exit `124`) from a command that merely exited
+non-zero. No external `timeout(1)` is used, so the harness stays drop-in on a
+stock macOS/BSD or Linux shell.
