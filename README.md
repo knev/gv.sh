@@ -290,6 +290,41 @@ A timeout of `0` disables the timeout (the default). A non-integer value —
 whether from `UNITT_TIMEOUT`, `--timeout`, or the 5th arg — is a startup/usage
 error and exits `2`.
 
+## Cleanup on exit
+
+If a test spawns a helper process — a daemon, a background server, anything that
+outlives the `run_test` call — an interrupted run could leave it orphaned. unitt
+installs a trap so that however a run ends (clean finish, `Ctrl-C`, or a directed
+`kill`) it reaps what the run spawned. The reaper is **project-agnostic**: it has
+no knowledge of *what* tests launch, so you don't register anything.
+
+```
+trap '_unitt_reap' EXIT
+trap 'exit 130'    INT
+trap 'exit 143'    TERM HUP
+```
+
+The `INT`/`TERM`/`HUP` traps just convert the signal into an `exit` (`130` for
+`SIGINT`, `143` for `SIGTERM` and `SIGHUP`, following the `128 + signum`
+convention), which fires the single `EXIT` trap that does the actual reaping.
+How it reaps depends on whether unitt leads its own process group:
+
+| Situation                                   | How unitt reaps                                                                 |
+|---------------------------------------------|--------------------------------------------------------------------------------|
+| **Group leader** — the usual interactive `./unitt` | `SIGTERM`s every *other* member of its process group. A helper that doesn't `setsid` keeps the group id even after it's reparented, so this catches orphans without naming them. |
+| **Shared group** — run under a script/automation | Group-killing would hit the caller's other processes, so it falls back to walking its own descendant tree (deepest-first, best effort). |
+
+In the shared-group fallback a *reparented* orphan escapes the descendant walk —
+if a project spawns such helpers, it should do its own cleanup (e.g. in a
+preamble); unitt's reaper is a safety net, not a replacement.
+
+Two limits nothing portable can fix:
+
+- A `SIGKILL` (`kill -9`) of unitt itself can't be trapped, so that path can't
+  reap anything.
+- A directed signal that arrives while unitt is blocked in a foreground test
+  command runs the trap only *after* that command returns.
+
 ## Step mode
 
 `--step [ID,]LINENO` pauses before every `run_test` whose caller line is
