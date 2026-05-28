@@ -292,7 +292,7 @@ status_matches() {
 # !!!NOTE: `.*` stays a wildcard; everything else passed here is literal.
 escape_expected() {
     local raw_pattern="$1"
-    echo "$raw_pattern" | sed 's/\[/\\[/g; s/\]/\\]/g; s/(/\\(/g; s/)/\\)/g; s/?/\\?/g; s/!/\\!/g; s/|/\\|/g; s/\([^.]\)\*/\1\\*/g'
+    echo "$raw_pattern" | sed 's/\[/\\[/g; s/\]/\\]/g; s/(/\\(/g; s/)/\\)/g; s/?/\\?/g; s/!/\\!/g; s/+/\\+/g; s/|/\\|/g; s/\([^.]\)\*/\1\\*/g'
 }
 	
 # Run $cmd with stdin from /dev/null, combining stdout+stderr, and capture both
