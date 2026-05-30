@@ -69,6 +69,12 @@ _unitt_reap() {
     # run_capture clears _rt_tmpd on its normal path, so a non-empty value here
     # means we were interrupted mid-capture.
     [ -n "${_rt_tmpd:-}" ] && rm -rf "$_rt_tmpd" 2>/dev/null
+    # Release the single-instance lock, but ONLY if we own it — a run that
+    # LOST the acquire race still fires this EXIT trap, and must not delete
+    # the winner's lock.
+    [ -n "${_unitt_lockdir:-}" ] \
+        && [ "$(cat "$_unitt_lockdir/pid" 2>/dev/null)" = "$$" ] \
+        && rm -rf "$_unitt_lockdir" 2>/dev/null
     pgid=$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' ')
     if [ -n "$pgid" ] && [ "$pgid" = "$me" ]; then
         for p in $(ps -ax -o pid=,pgid= 2>/dev/null \
@@ -82,6 +88,38 @@ _unitt_reap() {
 trap '_unitt_reap' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
+
+# --- single-instance guard --------------------------------------------------
+# Two concurrent ./unitt runs race on the shared test_Entropy_* store dirs and
+# on the preamble's graveyard sweep (one run's rm -rf / pkill / socket-rm
+# clobbers the other's in-flight state). Serialize with an atomic mkdir lock
+# (macOS has no flock(1), so mkdir is the portable atomic-create primitive). A
+# hard-killed run leaves a stale lock; reclaim it only when its pid is dead.
+#
+# NESTING: the suite self-tests by spawning a CHILD ./unitt. A child inherits
+# the exported UNITT_LOCK_HELD marker from its lock-holding ancestor and must
+# NOT re-acquire — the ancestor already serialized this run, so a child trying
+# to lock would refuse ITSELF ("another run is active"). The lock guards only
+# UNRELATED top-level invocations; a nested run rides on its parent's lock and
+# leaves `_unitt_lockdir` unset, so it neither acquires nor releases (the
+# release in _unitt_reap is gated on `_unitt_lockdir` being set). Isolating a
+# nested child's stores/sockets from the parent's is the self-test's job, not
+# the lock's.
+if [ -z "${UNITT_LOCK_HELD:-}" ]; then
+    _unitt_lockdir="${TMPDIR:-/tmp}/unitt.lock"
+    if ! mkdir "$_unitt_lockdir" 2>/dev/null; then
+        _owner=$(cat "$_unitt_lockdir/pid" 2>/dev/null)
+        if [ -n "$_owner" ] && kill -0 "$_owner" 2>/dev/null; then
+            echo "unitt: another run is active (pid $_owner) — refusing to avoid store/socket races." >&2
+            echo "       (if that pid is dead, rm -rf $_unitt_lockdir)" >&2
+            exit 1
+        fi
+        rm -rf "$_unitt_lockdir" 2>/dev/null             # stale lock from a killed run
+        mkdir "$_unitt_lockdir" 2>/dev/null || { echo "unitt: cannot acquire $_unitt_lockdir" >&2; exit 1; }
+    fi
+    echo "$$" > "$_unitt_lockdir/pid"
+    export UNITT_LOCK_HELD="$$"
+fi
 
 parse_step_value() {
     # Parse the value of --step=... into the globals step_unit/step_line.
