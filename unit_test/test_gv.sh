@@ -10,6 +10,8 @@ cleanup() {
     rm -f ./package.json ./package.json.tmp
     rm -f "./$_NSI_FILE" "./${_NSI_FILE}.bak"
     rm -rf ./antora-docs
+    rm -f ./ver.sh ./ver.sh.bak ./bare.sh ./bare.sh.bak ./noVer.sh
+    rm -f ./gvcopy.sh ./gvcopy.sh.bak
 }
 
 mk_version_h() {
@@ -63,6 +65,16 @@ mk_package_json_malformed() {
   "version": "not-a-version",
   "license": "MIT"
 }
+EOF
+}
+
+mk_bash_script() {
+    cat > ./ver.sh << 'EOF'
+#!/bin/bash
+
+VERSION=""
+
+echo "hello"
 EOF
 }
 
@@ -498,6 +510,67 @@ run_test "$GV_BIN --antora --antora docs/site/antora.yml --tag rc5" "0" "Updatin
 run_test "grep '^version:' ./antora-docs/antora.yml" "0" "\-rc5"
 run_test "grep '^version:' ./docs/site/antora.yml" "0" "\-rc5"
 rm -rf ./docs
+
+#----------------------------------------------------------------------
+# Group 11: --bash (set VERSION= in a bash/shell script)
+#----------------------------------------------------------------------
+echo
+echo "# Group 11: --bash"
+
+cleanup
+
+# --bash requires an explicit PATH (no default like the other switches)
+run_test "$GV_BIN --bash" "1" "requires an explicit PATH"
+run_test "$GV_BIN --bash --tag api" "1" "requires an explicit PATH"
+
+# --bash with a missing file: error out
+run_test "$GV_BIN --bash does/not/exist.sh" "1" "bash script not found"
+
+# --bash updates the VERSION= assignment to plain semver
+mk_bash_script
+run_test "$GV_BIN --bash ver.sh" "0" "Updating ver.sh VERSION"
+run_test "grep '^VERSION=' ./ver.sh" "0" "VERSION=\"[0-9]+\.[0-9]+\.[0-9]+\""
+cleanup
+
+# --bash --tag: resolved suffix (-api.6) written into the VERSION= line
+mk_bash_script
+run_test "$GV_BIN --bash ver.sh --tag api" "0" "\-api\.6"
+run_test "grep '^VERSION=' ./ver.sh" "0" "\-api\.6"
+cleanup
+
+# --bash on a bare (unquoted) assignment: matched and rewritten quoted
+printf '#!/bin/bash\nVERSION=0.0.1\n\necho hi\n' > ./bare.sh
+run_test "$GV_BIN --bash bare.sh" "0" "Updating bare.sh VERSION"
+run_test "grep '^VERSION=' ./bare.sh" "0" "VERSION=\"[0-9]+\.[0-9]+\.[0-9]+\""
+cleanup
+
+# --bash on a script with no VERSION= assignment: error out
+printf '#!/bin/bash\n\necho hi\n' > ./noVer.sh
+run_test "$GV_BIN --bash noVer.sh" "1" "no VERSION="
+cleanup
+
+#----------------------------------------------------------------------
+# Group 12: --version
+#----------------------------------------------------------------------
+echo
+echo "# Group 12: --version"
+
+cleanup
+
+# --version prints gv's own embedded VERSION, prefixed with v, as vX.Y.Z
+run_test "$GV_BIN --version" "0" "^v[0-9]+\.[0-9]+\.[0-9]+"
+
+# It reads the VERSION= line of the script it runs as: a stamped copy reports that value
+cp "$GV_BIN" ./gvcopy.sh
+sed -E -i.bak 's/^VERSION=.*/VERSION="9.9.9"/' ./gvcopy.sh && rm -f ./gvcopy.sh.bak
+chmod +x ./gvcopy.sh
+run_test "./gvcopy.sh --version" "0" "^v9\.9\.9$"
+
+# Empty VERSION falls back to v0.0.0 (no error)
+sed -E -i.bak 's/^VERSION=.*/VERSION=""/' ./gvcopy.sh && rm -f ./gvcopy.sh.bak
+run_test "./gvcopy.sh --version" "0" "^v0\.0\.0$"
+
+cleanup
 
 #----------------------------------------------------------------------
 

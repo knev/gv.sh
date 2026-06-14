@@ -1,18 +1,21 @@
 #!/bin/bash
 
+VERSION="0.5.14"
+
 # https://stackoverflow.com/questions/59895/how-to-get-the-source-directory-of-a-bash-script-from-within-the-script-itself
 # PWD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 # Use a Windows-compatible way to get the script's directory
 # PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-	echo "usage: $(basename $0) [[--js|--vs|--nsi|--antora] [PATH]]... [--agv [--fix]] [--tag TAG] [-h | --help]"
+	echo "usage: $(basename $0) [[--js|--vs|--nsi|--antora] [PATH]]... [--bash PATH]... [--agv [--fix]] [--tag TAG] [--version] [-h | --help]"
 	echo
 	echo "Default PATH (when omitted):"
 	echo "    --js       package.json"
 	echo "    --vs       ./version.h"
 	echo "    --nsi      ./<current-dir>.nsi"
 	echo "    --antora   ./antora-docs/antora.yml"
+	echo "    --bash     (no default; PATH required)"
 	echo
 	echo "Apple Generic Versioning (macOS / Xcode):"
 	echo "    --agv          bump marketing version + build number via agvtool"
@@ -24,6 +27,7 @@ usage() {
 	echo "    gv --js release/build/package.json               // update version in custom path"
 	echo "    gv --js --js packages/entropy-cpp/package.json   // update local package.json AND the specified one"
 	echo "    gv --vs --nsi                                    // update both version.h and .nsi file simultaneously"
+	echo "    gv --bash gv.sh                                  // set VERSION=\"x.y.z\" in a bash script"
 	echo
 }
 
@@ -40,6 +44,7 @@ JAVASCRIPT=0
 VS=0
 NSI=0
 ANTORA=0
+BASH=0
 APPLE_GENERIC_VER=0
 FIX=0
 COLLECT=0
@@ -50,6 +55,7 @@ JS_FILES=()
 VS_FILES=()
 NSI_FILES=()
 ANTORA_FILES=()
+BASH_FILES=()
 while [ "$1" != "" ]; do
 	case $1 in
 		--tag )					shift
@@ -94,6 +100,15 @@ while [ "$1" != "" ]; do
 									ANTORA_FILES+=("./antora-docs/antora.yml")
 								fi
 								;;
+		--bash)					BASH=1
+								if [ -n "$2" ] && [[ "$2" != -* ]]; then
+									shift
+									BASH_FILES+=("$1")
+								else
+									echo "Error: --bash requires an explicit PATH"
+									exit 1
+								fi
+								;;
 		--agv)					APPLE_GENERIC_VER=1
 								;;
 		--fix)					FIX=1
@@ -102,6 +117,9 @@ while [ "$1" != "" ]; do
 								;;
 		--out )					shift
 								OUT=$1
+								;;
+		--version )				echo "v${VERSION:-0.0.0}"
+								exit 0
 								;;
 		-h | --help )			(( !$APPLE_GENERIC_VER )) && { usage && exit 0; }
 								HELP=1
@@ -394,6 +412,45 @@ for ANTORA_FILE in "${ANTORA_FILES[@]}"; do
     rm -f "${ANTORA_FILE}.bak"
 
     grep "^version:" "$ANTORA_FILE" | sed 's/^/  /'
+done
+
+#─────────────────────────────────────────────────────────────
+# --bash : Set VERSION= assignment in a bash/shell script
+#─────────────────────────────────────────────────────────────
+
+for BASH_FILE in "${BASH_FILES[@]}"; do
+
+    if [ ! -f "$BASH_FILE" ]; then
+        echo "Error: bash script not found at $BASH_FILE"
+        exit 1
+    fi
+
+    FULL_VERSION="${NEWVER}"
+    if [ -n "$EXTRA_GIT_TAG" ]; then
+        FULL_VERSION="${FULL_VERSION}-${EXTRA_GIT_TAG}"
+    elif [ -n "$TAG" ]; then
+        FULL_VERSION="${FULL_VERSION}-${TAG}"
+    fi
+
+    if ! grep -qE "^[[:space:]]*VERSION=" "$BASH_FILE"; then
+        echo "Error: no VERSION= assignment found in $BASH_FILE"
+        exit 1
+    fi
+
+    echo
+    echo "Updating ${BASH_FILE} VERSION [${FULL_VERSION}]"
+
+    cp "$BASH_FILE" "${BASH_FILE}.bak" || exit 1
+
+    # Match a quoted ("…"/'…') or bare value and rewrite it canonically quoted,
+    # preserving any leading indentation.
+    sed -E -i.bak \
+        "s/^([[:space:]]*)VERSION=(\"[^\"]*\"|'[^']*'|[^[:space:]#]*)/\1VERSION=\"${FULL_VERSION}\"/" \
+        "$BASH_FILE"
+
+    rm -f "${BASH_FILE}.bak"
+
+    grep -E "^[[:space:]]*VERSION=" "$BASH_FILE" | head -n1 | sed 's/^/  /'
 done
 
 echo

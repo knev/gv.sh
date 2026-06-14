@@ -24,7 +24,7 @@ If `--tag TAG` is passed, `gv` additionally looks up the most recent tag matchin
 ## Usage
 
 ```
-gv [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--agv [--fix]] [--tag TAG] [-h | --help]
+gv [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--bash PATH]... [--agv [--fix]] [--tag TAG] [--version] [-h | --help]
 ```
 
 ### Target switches
@@ -37,6 +37,7 @@ Each target switch can be repeated, with or without a PATH. Without a PATH, the 
 | `--vs`      | `./version.h`                 | `VERSION_MAJOR`, `VERSION_MINOR`, `VERSION_PATCH`, `VERSION_BUILD`, `VERSION_SUFFIX` defines, plus a trailing `/* Updated to … */` comment. |
 | `--nsi`     | `<repo-dir>.nsi`              | The `!define APP_VERSION "…"` line. Default filename is derived from the current directory (`.git` suffix stripped). |
 | `--antora`  | `./antora-docs/antora.yml`    | The top-level `version:` field.                                                    |
+| `--bash`    | _none — PATH required_        | A `VERSION=` assignment (quoted or bare), rewritten as `VERSION="…"`. Errors if the file has no `VERSION=` line. |
 
 ### Repeating a switch
 
@@ -61,11 +62,12 @@ Not supported: `--js PATH PATH PATH` (subsequent bare paths are parsed as unknow
 
 | Switch           | Effect                                                                                             |
 |------------------|----------------------------------------------------------------------------------------------------|
-| `--tag TAG`      | Suffix handling. `--vs`/`--nsi`/`--antora` append `-TAG` to the written version. `--js` uses `TAG.N.M` git tags to form e.g. `0.0.21-api.5`. |
+| `--tag TAG`      | Suffix handling. `--vs`/`--nsi`/`--antora`/`--bash` append `-TAG` to the written version. `--js` uses `TAG.N.M` git tags to form e.g. `0.0.21-api.5`. |
 | `--agv`          | Apple Generic Versioning: runs `agvtool new-marketing-version` and `agvtool next-version -all`.    |
 | `--agv --fix`    | Rewrite `INFOPLIST_FILE = "$(SRCROOT)/…"` to `INFOPLIST_FILE = "…"` in the `.xcodeproj/project.pbxproj`. |
 | `--agv -h`       | Print setup notes for AGV instead of running it.                                                   |
 | `--print`        | Print the computed git tag (on by default).                                                        |
+| `--version`      | Print gv's own version (the `VERSION=` line in `gv.sh`) as `vX.Y.Z`; falls back to `v0.0.0` if unset. Stamp it with `gv --bash gv.sh`. |
 | `-h`, `--help`   | Print usage.                                                                                       |
 
 ## Examples
