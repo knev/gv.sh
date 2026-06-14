@@ -1,0 +1,1032 @@
+#!/bin/bash
+
+# This is a basic unit test script for the hash management script
+
+usage() {
+	echo
+    echo "Usage: $(basename "$0") [-c|-v] [-u SEL] [-x SEL] [-t SECS] [--step [ID,]LINENO] [-l]"
+    echo "Options:"
+    echo "    -c, --continue              Continue processing tests even in the event of failure."
+	echo "    -v, --verbose               Display all output regardless if pass or fail."
+    echo "    -h, --help                  Display this help and exit"
+    echo "    -u, --units SEL             Run only the selected test units. SEL is a comma-separated"
+    echo "                                list of ids/names and/or numeric ranges (e.g. 0800-0835)."
+    echo "    -x, --exclude SEL           Exclude the selected units (same SEL syntax). Applies on top"
+    echo "                                of -u, or to all units when -u is omitted (e.g. -x 0316)."
+    echo "    -t, --timeout SECS          Kill any single run_test that runs longer than SECS and fail it"
+    echo "                                (0 disables; overrides UNITT_TIMEOUT). With -c the suite continues."
+    echo "    --step [ID,]LINENO          Pause before each run_test call in test unit ID once its caller line is >= LINENO."
+	echo "                                ID is required when more than one test unit is present after filtering."
+	echo "                                Prompts: [Enter]=run, c=continue without stepping, l=continue to [unit,]line, s=skip, q=quit."
+	echo "    -l, --list-units            List discovered test units (id / name and file) and exit."
+	echo
+	echo "Naming: test_YYY_XX-NAME.sh — YYY is the unit id used by --units. XX picks"
+	echo "        unit_test/preamble_XX.sh (an all-zero XX means no preamble). Bare"
+	echo "        test_NN-NAME.sh has no preamble."
+	echo
+	echo "Note: options -c and -v are mutually exclusive."
+	echo
+}
+
+# Parse command line options
+continue_mode="false"
+verbose_mode="false"
+list_units_mode="false"
+units_filter=""
+exclude_filter=""
+timeout_flag=""
+step_line=""
+step_unit=""
+pass_count=0
+fail_count=0
+
+# Generic cleanup: reap helper processes a test spawned (e.g. daemons) so a
+# finished OR interrupted run doesn't orphan them. No knowledge of WHAT tests
+# launch, so it stays project-agnostic.
+#
+# When unitt leads its own process group (the usual interactive `./unitt`
+# case), anything ELSE in that group is something this run spawned — even a
+# reparented orphan keeps the group id (helpers that don't `setsid` do), so a
+# group-wide reap catches them. Under script/automation unitt may share its
+# caller's group; group-killing would be unsafe, so we fall back to walking our
+# own descendant tree (best effort — a reparented orphan escapes it; the
+# project's own reap, e.g. a preamble, covers that case).
+#
+# Caveats nothing portable fixes: a SIGKILL of unitt can't be trapped, and a
+# directed signal received while blocked in a foreground test command runs the
+# trap only after that command returns.
+# Signal a process and all its descendants, deepest first (so a parent doesn't
+# reparent its children to init before they're reached). $2 is the signal name,
+# default TERM. Used by the EXIT reap and by run_capture's timeout watchdog.
+_unitt_reap_tree() {
+    local root="$1" sig="${2:-TERM}" p
+    for p in $(pgrep -P "$root" 2>/dev/null); do _unitt_reap_tree "$p" "$sig"; done
+    [ "$root" = "$$" ] || kill "-$sig" "$root" 2>/dev/null
+}
+_unitt_reap() {
+    local me="$$" pgid p
+    # A timeout-path capture in flight leaves a temp dir behind on a signal;
+    # run_capture clears _rt_tmpd on its normal path, so a non-empty value here
+    # means we were interrupted mid-capture.
+    [ -n "${_rt_tmpd:-}" ] && rm -rf "$_rt_tmpd" 2>/dev/null
+    # Release the single-instance lock, but ONLY if we own it — a run that
+    # LOST the acquire race still fires this EXIT trap, and must not delete
+    # the winner's lock.
+    [ -n "${_unitt_lockdir:-}" ] \
+        && [ "$(cat "$_unitt_lockdir/pid" 2>/dev/null)" = "$$" ] \
+        && rm -rf "$_unitt_lockdir" 2>/dev/null
+    pgid=$(ps -o pgid= -p "$me" 2>/dev/null | tr -d ' ')
+    if [ -n "$pgid" ] && [ "$pgid" = "$me" ]; then
+        for p in $(ps -ax -o pid=,pgid= 2>/dev/null \
+                   | awk -v g="$pgid" -v me="$me" '$2==g && $1!=me {print $1}'); do
+            kill -TERM "$p" 2>/dev/null
+        done
+    else
+        _unitt_reap_tree "$me"
+    fi
+}
+trap '_unitt_reap' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
+
+# --- single-instance guard --------------------------------------------------
+# Two concurrent ./unitt runs race on the shared test_Entropy_* store dirs and
+# on the preamble's graveyard sweep (one run's rm -rf / pkill / socket-rm
+# clobbers the other's in-flight state). Serialize with an atomic mkdir lock
+# (macOS has no flock(1), so mkdir is the portable atomic-create primitive). A
+# hard-killed run leaves a stale lock; reclaim it only when its pid is dead.
+#
+# NESTING: the suite self-tests by spawning a CHILD ./unitt. A child inherits
+# the exported UNITT_LOCK_HELD marker from its lock-holding ancestor and must
+# NOT re-acquire — the ancestor already serialized this run, so a child trying
+# to lock would refuse ITSELF ("another run is active"). The lock guards only
+# UNRELATED top-level invocations; a nested run rides on its parent's lock and
+# leaves `_unitt_lockdir` unset, so it neither acquires nor releases (the
+# release in _unitt_reap is gated on `_unitt_lockdir` being set). Isolating a
+# nested child's stores/sockets from the parent's is the self-test's job, not
+# the lock's.
+if [ -z "${UNITT_LOCK_HELD:-}" ]; then
+    _unitt_lockdir="${TMPDIR:-/tmp}/unitt.lock"
+    if ! mkdir "$_unitt_lockdir" 2>/dev/null; then
+        _owner=$(cat "$_unitt_lockdir/pid" 2>/dev/null)
+        if [ -n "$_owner" ] && kill -0 "$_owner" 2>/dev/null; then
+            echo "unitt: another run is active (pid $_owner) — refusing to avoid store/socket races." >&2
+            echo "       (if that pid is dead, rm -rf $_unitt_lockdir)" >&2
+            exit 1
+        fi
+        rm -rf "$_unitt_lockdir" 2>/dev/null             # stale lock from a killed run
+        mkdir "$_unitt_lockdir" 2>/dev/null || { echo "unitt: cannot acquire $_unitt_lockdir" >&2; exit 1; }
+    fi
+    echo "$$" > "$_unitt_lockdir/pid"
+    export UNITT_LOCK_HELD="$$"
+fi
+
+parse_step_value() {
+    # Parse the value of --step=... into the globals step_unit/step_line.
+    # Echoes errors and returns non-zero on bad input.
+    local raw="$1"
+    if [[ "$raw" == *,* ]]; then
+        step_unit="${raw%%,*}"
+        step_line="${raw#*,}"
+        if [ -z "$step_unit" ] || [ -z "$step_line" ]; then
+            echo "step: expected ID,LINE, got [$raw]" >&2
+            return 1
+        fi
+    else
+        step_unit=""
+        step_line="$raw"
+    fi
+    if ! [[ "$step_line" =~ ^[0-9]+$ ]]; then
+        echo "step: expected numeric line number, got [$step_line]" >&2
+        return 1
+    fi
+    return 0
+}
+
+need_value() {
+    # Helper for options that take a separate-argument value. Echoes the value,
+    # or prints an error and returns non-zero when the next positional is
+    # missing.
+    local opt="$1" hint="$2" remaining="$3" next="$4"
+    if [ "$remaining" -lt 2 ]; then
+        echo "${opt#--}: missing value (use $hint)" >&2
+        return 1
+    fi
+    printf '%s\n' "$next"
+    return 0
+}
+
+while [ $# -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+        -c|--continue)
+            continue_mode="true"
+            shift
+            ;;
+        -v|--verbose)
+            verbose_mode="true"
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -l|--list-units)
+            list_units_mode="true"
+            shift
+            ;;
+        -u|--units)
+            if ! val=$(need_value "--units" "--units ID[,ID...]" "$#" "${2-}"); then
+                usage; exit 2
+            fi
+            units_filter="$val"
+            if [ -z "$units_filter" ]; then
+                echo "units: missing value (use --units ID[,ID...])" >&2
+                usage; exit 2
+            fi
+            shift 2
+            ;;
+        -x|--exclude)
+            if ! val=$(need_value "--exclude" "--exclude ID[,ID...]" "$#" "${2-}"); then
+                usage; exit 2
+            fi
+            exclude_filter="$val"
+            if [ -z "$exclude_filter" ]; then
+                echo "exclude: missing value (use --exclude ID[,ID...])" >&2
+                usage; exit 2
+            fi
+            shift 2
+            ;;
+        -t|--timeout)
+            if ! val=$(need_value "--timeout" "--timeout SECS" "$#" "${2-}"); then
+                usage; exit 2
+            fi
+            timeout_flag="$val"
+            shift 2
+            ;;
+        --step)
+            if ! val=$(need_value "--step" "--step [ID,]LINENO" "$#" "${2-}"); then
+                usage; exit 2
+            fi
+            if ! parse_step_value "$val"; then
+                usage; exit 2
+            fi
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        --*)
+            echo "Invalid option: $arg" >&2
+            usage; exit 2
+            ;;
+        -[a-zA-Z]*)
+            # Any short-form starting with -X that didn't match an explicit
+            # case above is an unknown short flag (or unsupported cluster).
+            echo "${0##*/}: illegal option -- ${arg#-}" >&2
+            usage; exit 2
+            ;;
+        *)
+            echo "Unexpected argument: $arg" >&2
+            usage; exit 2
+            ;;
+    esac
+done
+
+# Per-test timeout in seconds. The baseline is seeded from UNITT_TIMEOUT
+# (0/unset disables it); the --timeout flag, when given, overrides the env var.
+# The baseline is immutable; unitt_timeout is the live value run_test reads and
+# is reset to the baseline before each unit, so a preamble may set it to scope a
+# timeout to its unit without leaking into later units.
+unitt_timeout_baseline=${UNITT_TIMEOUT:-0}
+# A bad env var isn't a CLI misuse, so it errors without printing usage; a bad
+# --timeout flag does print usage. Both exit 2.
+if [ -n "${UNITT_TIMEOUT:-}" ] && ! [[ "$UNITT_TIMEOUT" =~ ^[0-9]+$ ]]; then
+    echo "UNITT_TIMEOUT: expected a non-negative integer (seconds), got [$UNITT_TIMEOUT]" >&2
+    exit 2
+fi
+if [ -n "$timeout_flag" ]; then
+    if ! [[ "$timeout_flag" =~ ^[0-9]+$ ]]; then
+        echo "timeout: expected a non-negative integer (seconds), got [$timeout_flag]" >&2
+        usage; exit 2
+    fi
+    unitt_timeout_baseline="$timeout_flag"
+fi
+unitt_timeout="$unitt_timeout_baseline"
+
+#	# Check for mutually exclusive flags
+#	mutual_exclusive_count=0
+#	for mode in "$continue_mode" "$verbose_mode"; do
+#	    if [ "$mode" = "true" ]; then
+#	        ((mutual_exclusive_count++))
+#	    fi
+#	done
+#	
+#	if [ $mutual_exclusive_count -gt 1 ]; then
+#	    echo "Error: options -c and -v are mutually exclusive. Please use only one." >&2
+#	    usage
+#	    exit 1
+#	fi
+
+status_matches() {
+    local s1="$1"
+    local s2="$2"
+
+    if [ "$s1" -eq 0 ] && [ "$s2" -eq 0 ]; then
+        return 0
+    elif [ "$s1" -ne 0 ] && [ "$s2" -ne 0 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Escape regex metacharacters in a literal expected-string so it
+# matches as text. `[] () ? ! |` are escaped outright. A `*` is
+# escaped too — EXCEPT when it follows `.`, so the deliberate `.*`
+# wildcard (used in expected strings to span variable text) keeps
+# working while a bare `*` (e.g. in the grammar token `/*`) matches
+# literally.
+#
+# !!!NOTE: `.*` stays a wildcard; everything else passed here is literal.
+escape_expected() {
+    local raw_pattern="$1"
+    echo "$raw_pattern" | sed 's/\[/\\[/g; s/\]/\\]/g; s/(/\\(/g; s/)/\\)/g; s/?/\\?/g; s/!/\\!/g; s/+/\\+/g; s/|/\\|/g; s/\([^.]\)\*/\1\\*/g'
+}
+	
+# Run $cmd with stdin from /dev/null, combining stdout+stderr, and capture both
+# its output and exit status into the globals _rt_output / _rt_status.
+# _rt_timed_out is set "true" (and _rt_status forced to 124, the timeout(1)
+# convention) when a positive $2 timeout elapses and the command is killed.
+#
+# eval runs in a subshell of THIS shell so a test command that is itself a
+# shell function (escape_expected, status_matches, preamble-defined helpers)
+# still resolves. Globals are used rather than command substitution because the
+# timeout path must `wait` in this shell — a subshell's background PID isn't
+# waitable by the parent.
+#
+# Invariant: $2 (timeout) is a validated non-negative integer — every caller
+# (startup for the env/flag baseline, run_test for the per-test arg) checks it,
+# so `[ "$timeout" -le 0 ]` below is safe.
+run_capture() {
+    local cmd="$1" timeout="$2"
+    _rt_timed_out="false"
+
+    if [ "$timeout" -le 0 ]; then
+        # No timeout: the historical fd trick, capturing output+status in one
+        # subshell. stdin from /dev/null so a bare command that reads stdin when
+        # it isn't a tty can't block on an inherited, never-EOF stdin; a command
+        # that pipes its own stdin (`echo ... | cmd`) still gets its pipe.
+        local full_output
+        full_output=$( { eval "$cmd" </dev/null 2>&1; echo $? >&3; } 3>&1 | cat )
+        _rt_status=${full_output##*$'\n'}
+        _rt_output=${full_output%$'\n'*}
+        _rt_output=${_rt_output%$'\n'}
+        return 0
+    fi
+
+    # Timeout path: run the command in the background under a watchdog. `wait`
+    # reaps it the instant it finishes, so a fast test pays no polling cost; a
+    # wedged one is TERM'd (then KILL'd after a 1s grace) once the watchdog's
+    # sleep elapses. A marker file disambiguates a real timeout from a command
+    # that merely exited non-zero.
+    local tmpd
+    if ! tmpd=$(mktemp -d "${TMPDIR:-/tmp}/unitt_rc.XXXXXX") || [ -z "$tmpd" ]; then
+        echo "run_capture: failed to create temp dir (check \$TMPDIR)" >&2
+        exit 2
+    fi
+    # Track it so the EXIT reap can remove it if a signal interrupts us here.
+    _rt_tmpd="$tmpd"
+    ( eval "$cmd" </dev/null ) >"$tmpd/out" 2>&1 &
+    local cmd_pid=$!
+    (
+        # Narrow race: if the command exits in the same instant this sleep
+        # elapses, kill -0 may still see it and flag a (harmless) spurious
+        # timeout. Acceptable for second-granularity timeouts.
+        sleep "$timeout"
+        if kill -0 "$cmd_pid" 2>/dev/null; then
+            : > "$tmpd/timed_out"
+            # Kill the whole tree, not just the eval subshell: a compound or
+            # backgrounding command has children that would otherwise reparent
+            # and leak. TERM first, then KILL after a 1s grace.
+            _unitt_reap_tree "$cmd_pid" TERM
+            sleep 1
+            _unitt_reap_tree "$cmd_pid" KILL
+        fi
+    ) &
+    local wd_pid=$!
+    wait "$cmd_pid" 2>/dev/null
+    _rt_status=$?
+    kill "$wd_pid" 2>/dev/null
+    wait "$wd_pid" 2>/dev/null
+    if [ -e "$tmpd/timed_out" ]; then
+        _rt_timed_out="true"
+        _rt_status=124
+    fi
+    _rt_output=$(cat "$tmpd/out" 2>/dev/null)
+    _rt_output=${_rt_output%$'\n'}
+    rm -rf "$tmpd"
+    _rt_tmpd=""
+    return 0
+}
+
+# Helper function to run commands and check their output
+run_test() {
+    local cmd="$1"
+    local expected_status="$2"
+    local expected_regex="$3"
+    local not_flag="${4:-false}"  # Default not_flag to false if not provided
+    # Optional 5th arg: a per-test timeout (seconds) overriding the global
+    # unitt_timeout for this call alone. Empty means "use the global".
+    local test_timeout="${5:-$unitt_timeout}"
+    if ! [[ "$test_timeout" =~ ^[0-9]+$ ]]; then
+        echo "run_test: timeout must be a non-negative integer, got [$test_timeout]" >&2
+        exit 2
+    fi
+
+    # --step: pause before running once the caller's line number in the
+    # currently-sourced test unit is >= $step_line and the unit matches
+    # $step_unit (when set). Reads keystrokes from /dev/tty so tests that
+    # pipe stdin into the command under test aren't affected.
+    local caller_line=${BASH_LINENO[0]}
+    if [ -n "$step_line" ] \
+       && { [ -z "$step_unit" ] || [ "$step_unit" = "$CURRENT_UNIT_ID" ]; } \
+       && [ "$caller_line" -ge "$step_line" ]; then
+        local caller_file="${BASH_SOURCE[1]##*/}"
+        printf '\n--- step [%s:%s:%d] ---\n' "$CURRENT_UNIT_ID" "$caller_file" "$caller_line" >&2
+        printf '  $ %s\n' "$cmd" >&2
+        local not_suffix=""
+        [ "$not_flag" = "true" ] && not_suffix=" (NOT)"
+        printf '  Expected EXIT status:[%s] regex:[%s]%s\n' \
+            "$expected_status" "$expected_regex" "$not_suffix" >&2
+        local key="" target="" tunit="" tline="" tresolved="" tidx=""
+        local done_prompt="false"
+        while [ "$done_prompt" = "false" ]; do
+			printf '[ENTER]=run, [c]ontinue/to (unit,)[l]ine, [s]kip, [q]uit ? ' >&2
+            read -rsn1 key < /dev/tty
+            printf '\n' >&2
+            case "$key" in
+                q|Q) echo "step: quit at [$CURRENT_UNIT_ID:$caller_file:$caller_line]" >&2; exit 0 ;;
+                c|C) step_line=""; step_unit=""; done_prompt="true" ;;
+                l|L)
+                    print_unit_list
+                    target=""
+                    printf 'Continue to (unit,)line: ' >&2
+                    read -r target < /dev/tty
+                    # Empty input: re-display the main prompt so the user can pick again.
+                    if [ -z "$target" ]; then
+                        continue
+                    fi
+                    if [[ "$target" == *,* ]]; then
+                        tunit="${target%%,*}"
+                        tline="${target#*,}"
+                        # Trailing comma with no line: "unit," means "jump to unit, start from the beginning".
+                        [ -z "$tline" ] && tline="0"
+                        tresolved=""
+                        tidx=""
+                        if [ -z "$tunit" ] || ! [[ "$tline" =~ ^[0-9]+$ ]]; then
+                            echo "step: expected [unit,]line, got [$target] — staying at [$caller_line]" >&2
+                        elif ! tresolved=$(unit_resolve "$tunit"); then
+                            echo "step: unknown test unit [$tunit] — staying at [$caller_line]" >&2
+                        else
+                            tidx=$(unit_index "$tresolved")
+                            if [ "${UNIT_DISABLED[$tidx]}" = "true" ]; then
+                                echo "step: test unit [$tresolved] is disabled — staying at [$caller_line]" >&2
+                            elif [ "$tidx" -lt "${CURRENT_UNIT_INDEX:-0}" ]; then
+                                echo "step: test unit [$tresolved] has already completed — staying at [$caller_line]" >&2
+                            else
+                                step_unit="$tresolved"
+                                step_line="$tline"
+                            fi
+                        fi
+                    elif [[ "$target" =~ ^[0-9]+$ ]]; then
+                        step_unit="$CURRENT_UNIT_ID"
+                        step_line="$target"
+                    else
+                        echo "step: expected [unit,]line, got [$target] — staying at [$caller_line]" >&2
+                    fi
+                    done_prompt="true"
+                    ;;
+                s|S) echo "step: skipped [$CURRENT_UNIT_ID:$caller_file:$caller_line]" >&2; return 0 ;;
+                *) done_prompt="true" ;;
+            esac
+        done
+    fi
+
+    #	local output=$(eval "$cmd" 2>&1)
+	#	if [ "$not_flag" = "true" ]; then
+	#	    # Check if expected is NOT in output
+	#	    if [[ "$output" != *"$expected"* ]]; then
+	#			echo "PASS: (NOT) $expected"
+	#	    else
+	#			echo
+	#			echo "FAIL: $cmd"
+	#			echo "Expected to NOT contain: $expected"
+	#			echo "----"
+	#			echo "$output"
+	#			echo "----"
+	#	    fi
+	#	else
+	#	    # Check if expected is in output
+	#	    if [[ "$output" == *"$expected"* ]]; then
+	#			echo "PASS: $expected"
+	#	    else
+	#			echo
+	#			echo "FAIL: $cmd"
+	#			echo "Expected to contain: $expected"
+	#			echo "----"
+	#			echo "$output"
+	#			echo "----"
+	#		fi
+	#	fi
+
+	# Grok
+	# You're correct; both command substitution and eval in their basic forms do not 
+	# allow for capturing both the output and the exit status of a command 
+	# simultaneously in a straightforward way. However, there are workarounds to achieve this:
+	# Using a Subshell for Capturing Both Output and Exit Status:
+	# One way to capture both the output and the exit status is by using a subshell and command grouping:
+	# Capture output and exit status
+	#	output=$( { command_to_run 2>&1; echo $? >&3; } 3>&1 | cat )
+	#	exit_status=${output##*$'\n'}
+	#	output=${output%$'\n'*}
+	# Now $output contains the command's output (including stderr),
+	# and $exit_status contains the exit status
+	# Here's the breakdown:
+    #	- { command_to_run 2>&1; echo $? >&3; } is a command group where 
+	#	  command_to_run is executed, its stdout and stderr are combined (2>&1), 
+	#	  followed by echoing its exit status to file descriptor 3.
+    #	- 3>&1 redirects file descriptor 3 to stdout before the group starts, allowing us 
+	#	  to capture the exit status outside the group.
+    #	- | cat ensures that the entire output (including the exit status) is passed to 
+	#	  the command substitution.
+    #	- We then split the output to separate the command output from the exit status:
+    #		- exit_status=${output##*$'\n'} removes everything up to and 
+	#		  including the last newline, leaving only the exit status.
+	#		- output=${output%$'\n'*} removes the last line (which is the exit status) from the output.
+
+
+    # Capture combined stdout+stderr and exit status (run_capture honors the
+    # timeout: a wedged command is killed and surfaces as exit 124).
+    run_capture "$cmd" "$test_timeout"
+    local output="$_rt_output"
+    local exit_status="$_rt_status"
+
+    # A timed-out command is always a failure, regardless of the expected
+    # status/regex — a hang must never be reported as a pass. Show whatever it
+    # printed before the kill, and honor -c like any other failure.
+    if [ "$_rt_timed_out" = "true" ]; then
+        echo
+        echo "# FAIL: [$cmd][TIMEOUT ${test_timeout}s], line no. [${BASH_LINENO[0]}]"
+        echo "# Test exceeded the ${test_timeout}s per-test timeout and was killed."
+        echo "#----"
+        echo "$output" | sed 's/^/  /'
+        echo "#----"
+        echo
+        fail_count=$((fail_count + 1))
+        if [ "$continue_mode" != "true" ]; then
+            echo "To be continued ..."
+            echo
+            exit 1
+        fi
+        return 0
+    fi
+
+	local ok="no"
+	local status_ok="no"
+	status_matches "$exit_status" "$expected_status" && status_ok="YES"
+	if [ "$not_flag" = "true" ]; then
+	    # Check if expected is NOT in output
+		if ! [[ "$output" =~ $expected_regex ]]; then
+			ok="YES"
+			if status_matches "$exit_status" "$expected_status" && [ "$verbose_mode" != "true" ]; then
+				echo "PASS: [$cmd][$exit_status] ! \"$expected_regex\", line no. [${BASH_LINENO[0]}]"
+				pass_count=$((pass_count + 1))
+				return 0
+			fi 
+		fi
+
+		echo
+		if [ "$ok" = "YES" ] && [ "$status_ok" = "YES" ]; then
+			echo "# PASS: [$cmd][$exit_status], line no. [${BASH_LINENO[0]}]"
+			pass_count=$((pass_count + 1))
+		else
+			echo "# FAIL: [$cmd][$exit_status], line no. [${BASH_LINENO[0]}]"
+			fail_count=$((fail_count + 1))
+		fi
+		echo "# Expected EXIT status [$status_ok]: [$expected_status]"
+		echo "# Expected to NOT contain [$ok]: \"$expected_regex\""
+		echo "#----"
+		echo "$output" | sed 's/^/  /'
+		echo "#----"
+		echo
+
+		if [ "$ok" = "no" ] || ! status_matches "$exit_status" "$expected_status"; then
+		  if [ "$continue_mode" != "true" ]; then
+			echo "To be continued ..."
+			echo
+			exit 1
+		  fi
+		fi
+	else
+	    # Check if expected is in output
+		if [[ "$output" =~ $expected_regex ]]; then
+			ok="YES"
+			if status_matches "$exit_status" "$expected_status" && [ "$verbose_mode" != "true" ]; then
+				echo "PASS: [$cmd][$exit_status] \"$expected_regex\", line no. [${BASH_LINENO[0]}]"
+				pass_count=$((pass_count + 1))
+				return 0
+			fi
+		fi
+
+		echo
+		if [ "$ok" = "YES" ] && [ "$status_ok" = "YES" ]; then
+			echo "# PASS: [$cmd][$exit_status], line no. [${BASH_LINENO[0]}]"
+			pass_count=$((pass_count + 1))
+		else
+			echo "# FAIL: [$cmd][$exit_status], line no. [${BASH_LINENO[0]}]"
+			fail_count=$((fail_count + 1))
+		fi
+		echo "# Expected EXIT status [$status_ok]: [$expected_status]"
+		echo "# Expected to contain [$ok]: \"$expected_regex\""
+		echo "#----"
+		echo "$output" | sed 's/^/  /'
+		echo "#----"
+		echo
+
+		if [ "$ok" = "no" ] || ! status_matches "$exit_status" "$expected_status"; then
+		  if [ "$continue_mode" != "true" ]; then
+			echo "To be continued ..."
+			echo
+			exit 1
+		  fi
+		fi
+	fi
+}
+
+#	output="File: [8470d56547eea6236d7c81a644ce74670ca0bbda998e13c629ef6bb3f0d60b69]: [test] \"file with spaces.txt\" -- OK"
+#	pattern="File: \[8470d5654.*6bb3f0d60b69\]: \[test\] \"file with spaces.txt\" -- OK"
+#	[[ "$output" =~ $pattern ]] && echo 1 || echo 0
+#	
+#	# ----
+#	
+#	escape_brackets() {
+#	    local raw_pattern="$1"
+#	    echo "$raw_pattern" | sed 's/\[/\\[/g; s/\]/\\]/g'
+#	}
+#	
+#	compare_file_string() {
+#	    local file_pattern="$1"
+#	    local target_string="File: [8470d56547eea6236d7c81a644ce74670ca0bbda998e13c629ef6bb3f0d60b69]: [test] \"file with spaces.txt\" -- OK"
+#	    if [[ $target_string =~ $file_pattern ]]; then
+#	        return 0 # Match
+#	    else
+#	        return 1 # No match
+#	    fi
+#	}
+#	
+#	# Example usage
+#	file_pattern_raw="File: [8470d5654.*6bb3f0d60b69]: [test] \"file with spaces\.txt\" -- OK"
+#	file_pattern=$(escape_brackets "$file_pattern_raw")
+#	compare_file_string "$file_pattern"
+#	if [[ $? -eq 0 ]]; then
+#	    echo "Match found"
+#	else
+#	    echo "No match"
+#	fi
+
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Helpers used by the step gate and discovery loop.
+#
+# A numbered unit (test_NN-name.sh) is addressable by either its number or its
+# name; an unnumbered unit (test_core.sh) is addressable by its name only.
+# unit_resolve takes user input and prints the canonical primary ID.
+unit_resolve() {
+    local target="$1"
+    local i
+    for i in "${!UNIT_IDS[@]}"; do
+        if [ "${UNIT_IDS[$i]}" = "$target" ] || [ "${UNIT_NAMES[$i]}" = "$target" ]; then
+            printf '%s\n' "${UNIT_IDS[$i]}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+unit_exists() {
+    unit_resolve "$1" >/dev/null
+}
+
+unit_index() {
+    local target="$1"
+    local i
+    for i in "${!UNIT_IDS[@]}"; do
+        if [ "${UNIT_IDS[$i]}" = "$target" ]; then
+            printf '%s\n' "$i"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Expand one --units/--exclude token into canonical unit IDs (space-separated,
+# on stdout). A token is an id, a name, or a numeric range `LO-HI` (inclusive,
+# zero-padding tolerated). A range selects every numeric-id unit in [LO,HI] and
+# silently skips disabled ones; an explicitly-named disabled unit is an error.
+# `$2` is "units"|"exclude" for messages. Returns non-zero on a bad token.
+expand_unit_token() {
+    local tok="$1" flag="$2"
+    if [[ "$tok" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+        local lo="${BASH_REMATCH[1]}" hi="${BASH_REMATCH[2]}"
+        if [ "$((10#$lo))" -gt "$((10#$hi))" ]; then
+            echo "$flag: inverted range [$tok]" >&2; return 1
+        fi
+        local i uid matched=""
+        for i in "${!UNIT_IDS[@]}"; do
+            uid="${UNIT_IDS[$i]}"
+            [[ "$uid" =~ ^[0-9]+$ ]] || continue          # only numeric ids range
+            [ "${UNIT_DISABLED[$i]}" = "true" ] && continue
+            if [ "$((10#$uid))" -ge "$((10#$lo))" ] && [ "$((10#$uid))" -le "$((10#$hi))" ]; then
+                matched="$matched $uid"
+            fi
+        done
+        if [ -z "$matched" ]; then
+            echo "$flag: range [$tok] matched no enabled units" >&2; return 1
+        fi
+        printf '%s\n' "$matched"
+        return 0
+    fi
+    local resolved ridx
+    if resolved=$(unit_resolve "$tok"); then
+        ridx=$(unit_index "$resolved")
+        if [ "${UNIT_DISABLED[$ridx]}" = "true" ]; then
+            echo "$flag: test unit [$tok] is disabled" >&2; return 1
+        fi
+        printf '%s\n' "$resolved"
+        return 0
+    fi
+    echo "$flag: unknown test unit [$tok]" >&2
+    return 1
+}
+
+# Expand a comma-separated SEL list into a de-duplicated, space-separated set of
+# canonical unit IDs on stdout. Returns non-zero (with a message) on any bad
+# entry. `$2` is "units"|"exclude" for messages.
+expand_unit_list() {
+    local list="$1" flag="$2" out="" tok id ids
+    local -a parts
+    IFS=',' read -ra parts <<< "$list"
+    for tok in "${parts[@]}"; do
+        if [ -z "$tok" ]; then
+            echo "$flag: empty entry in [$list]" >&2; return 1
+        fi
+        if ! ids=$(expand_unit_token "$tok" "$flag"); then
+            return 1
+        fi
+        for id in $ids; do
+            case " $out " in *" $id "*) ;; *) out="$out $id" ;; esac
+        done
+    done
+    printf '%s\n' "$out"
+}
+
+# Always lists every discovered unit. During a step pause, units that have
+# already been sourced are marked "done" — the table still shows them for
+# context, but the `l` handler refuses to jump there. Units whose filename
+# starts with `_` are listed with a "(disabled)" marker; they're discovered
+# for visibility but never sourced and cannot be selected.
+print_unit_list() {
+    local in_step="false"
+    [ -n "${CURRENT_UNIT_ID:-}" ] && in_step="true"
+    if [ "$in_step" = "true" ]; then
+        printf 'Available units (current: %s):\n' "$CURRENT_UNIT_ID" >&2
+    else
+        printf 'Available units:\n' >&2
+    fi
+    local i status label start_idx
+    start_idx="${CURRENT_UNIT_INDEX:-0}"
+    for i in "${!UNIT_IDS[@]}"; do
+        status=""
+        if [ "${UNIT_DISABLED[$i]:-false}" = "true" ]; then
+            status="  * disabled"
+        elif [ "$in_step" = "true" ]; then
+            if [ "${UNIT_IDS[$i]}" = "$CURRENT_UNIT_ID" ]; then
+                status="<-- current"
+            elif [ "$i" -lt "$start_idx" ]; then
+                status="  ■ (done)"
+            fi
+        fi
+        if [ "${UNIT_IDS[$i]}" = "${UNIT_NAMES[$i]}" ]; then
+            label="[${UNIT_IDS[$i]}]"
+        else
+            label="[${UNIT_IDS[$i]}]-[${UNIT_NAMES[$i]}]"
+        fi
+        if [ -n "$status" ]; then
+            printf '  unit:%-18s unit_test/%-26s %s\n' "$label" "[${UNIT_FILES[$i]##*/}]" "$status" >&2
+        else
+            printf '  unit:%-18s unit_test/%s\n' "$label" "[${UNIT_FILES[$i]##*/}]" >&2
+        fi
+    done
+}
+
+# Discover unit_test/test_*.sh and source them in order. Numbered files
+# (test_NN-...) run first by numeric value, then unnumbered files
+# alphabetically. UNIT_TEST_CORE overrides discovery for single-file
+# regression rigs (see verbose-mode tests in test_core.sh).
+UNIT_IDS=()
+UNIT_NAMES=()
+UNIT_FILES=()
+UNIT_DISABLED=()
+UNIT_PREAMBLE_TAGS=()
+
+if [ -n "${UNIT_TEST_CORE:-}" ]; then
+    UNIT_IDS=("core")
+    UNIT_NAMES=("core")
+    UNIT_FILES=("$UNIT_TEST_CORE")
+    UNIT_DISABLED=("false")
+    UNIT_PREAMBLE_TAGS=("00")
+else
+    _sortkeys=()
+    # Discovery picks up both enabled (`test_*.sh`) and disabled
+    # (`_test_*.sh`) units. Disabled units appear in --list-units output but
+    # are never sourced and cannot be selected by --units / --step.
+    #
+    # Naming patterns recognised:
+    #   test_YYY_XX-NAME.sh — YYY is the unit id used by --units / --step.
+    #                         XX is the preamble tag (sourced from
+    #                         unit_test/preamble_XX.sh; an all-zero XX means
+    #                         none — "0", "00", "000" all skip the source).
+    #   test_NN-NAME.sh     — no preamble sourced; NN is the unit id.
+    #   test_NAME.sh        — non-numeric id; no preamble; sorted after numerics.
+    for f in unit_test/test_*.sh unit_test/_test_*.sh; do
+        [ -e "$f" ] || continue
+        bn_full="${f##*/}"
+        if [[ "$bn_full" == _test_* ]]; then
+            disabled="true"
+            bn="${bn_full%.sh}"; bn="${bn#_test_}"
+        else
+            disabled="false"
+            bn="${bn_full%.sh}"; bn="${bn#test_}"
+        fi
+        preamble_tag="00"
+        if [[ "$bn" =~ ^([0-9]+)_([0-9a-zA-Z]+)(-(.+))?$ ]]; then
+            id="${BASH_REMATCH[1]}"
+            preamble_tag="${BASH_REMATCH[2]}"
+            name="${BASH_REMATCH[4]}"
+            [ -z "$name" ] && name="$id"
+            # Sort key uses $((10#...)) — bash 64-bit signed arithmetic. 18
+            # digits is the largest length that always fits regardless of
+            # value; non-digit preamble tags would also blow up there.
+            # Catch both at startup so the failure is named, not a cryptic
+            # "value too great for base" from inside the discovery loop.
+            if ! [[ "$preamble_tag" =~ ^[0-9]+$ ]]; then
+                echo "ERROR: [$bn_full]: preamble-form tag [$preamble_tag] must be all-digit" >&2
+                exit 2
+            fi
+            if [ "${#id}" -gt 18 ] || [ "${#preamble_tag}" -gt 18 ]; then
+                echo "ERROR: [$bn_full]: id or preamble tag exceeds 18 digits (sort key would overflow)" >&2
+                exit 2
+            fi
+            sk=$(printf '0_%010d_%010d' "$((10#$id))" "$((10#$preamble_tag))")
+        elif [[ "$bn" =~ ^([0-9]+)(-(.+))?$ ]]; then
+            id="${BASH_REMATCH[1]}"
+            name="${BASH_REMATCH[3]}"
+            [ -z "$name" ] && name="$id"
+            if [ "${#id}" -gt 18 ]; then
+                echo "ERROR: [$bn_full]: id exceeds 18 digits (sort key would overflow)" >&2
+                exit 2
+            fi
+            sk=$(printf '0_%010d_0000000000' "$((10#$id))")
+        else
+            id="$bn"
+            name="$bn"
+            sk="1_$bn"
+        fi
+        UNIT_IDS+=("$id"); UNIT_NAMES+=("$name"); UNIT_FILES+=("$f")
+        UNIT_DISABLED+=("$disabled"); UNIT_PREAMBLE_TAGS+=("$preamble_tag")
+        _sortkeys+=("$sk")
+    done
+
+    if [ "${#UNIT_IDS[@]}" -eq 0 ]; then
+        echo "ERROR: no test units found in unit_test/test_*.sh" >&2
+        exit 2
+    fi
+
+    indices=( $(for i in "${!_sortkeys[@]}"; do
+                    printf '%s\t%s\n' "${_sortkeys[$i]}" "$i"
+                done | sort | awk -F'\t' '{print $2}') )
+    sorted_ids=()
+    sorted_names=()
+    sorted_files=()
+    sorted_disabled=()
+    sorted_preamble_tags=()
+    for i in "${indices[@]}"; do
+        sorted_ids+=("${UNIT_IDS[$i]}")
+        sorted_names+=("${UNIT_NAMES[$i]}")
+        sorted_files+=("${UNIT_FILES[$i]}")
+        sorted_disabled+=("${UNIT_DISABLED[$i]}")
+        sorted_preamble_tags+=("${UNIT_PREAMBLE_TAGS[$i]}")
+    done
+    UNIT_IDS=("${sorted_ids[@]}")
+    UNIT_NAMES=("${sorted_names[@]}")
+    UNIT_FILES=("${sorted_files[@]}")
+    UNIT_DISABLED=("${sorted_disabled[@]}")
+    UNIT_PREAMBLE_TAGS=("${sorted_preamble_tags[@]}")
+
+    # Catch collisions between any pair of (id, name) across enabled units.
+    # Disabled (`_test_*.sh`) units are skipped so a disabled leftover can
+    # share an id with its active replacement without tripping the check.
+    seen=""
+    for i in "${!UNIT_IDS[@]}"; do
+        [ "${UNIT_DISABLED[$i]}" = "true" ] && continue
+        id="${UNIT_IDS[$i]}"
+        name="${UNIT_NAMES[$i]}"
+        case " $seen " in *" $id "*)
+            echo "ERROR: duplicate test unit identifier [$id]" >&2
+            exit 2 ;;
+        esac
+        seen="$seen $id"
+        if [ "$name" != "$id" ]; then
+            case " $seen " in *" $name "*)
+                echo "ERROR: duplicate test unit identifier [$name]" >&2
+                exit 2 ;;
+            esac
+            seen="$seen $name"
+        fi
+    done
+fi
+
+# Apply --units / --exclude selection. SEL is a comma-separated list of
+# ids/names and/or numeric ranges (LO-HI); see expand_unit_list. The base set
+# is the -u selection, or all enabled units when -u is omitted; -x is then
+# subtracted. Discovery order is preserved so behaviour is independent of how
+# the user listed them.
+if [ -n "$units_filter" ] || [ -n "$exclude_filter" ]; then
+    # Base set.
+    if [ -n "$units_filter" ]; then
+        if ! selected_ids=$(expand_unit_list "$units_filter" "units"); then
+            usage; exit 2
+        fi
+    else
+        selected_ids=""
+        for i in "${!UNIT_IDS[@]}"; do
+            [ "${UNIT_DISABLED[$i]}" = "true" ] && continue
+            selected_ids="$selected_ids ${UNIT_IDS[$i]}"
+        done
+    fi
+
+    # Subtract the exclusion set.
+    excluded_ids=""
+    if [ -n "$exclude_filter" ]; then
+        if ! excluded_ids=$(expand_unit_list "$exclude_filter" "exclude"); then
+            usage; exit 2
+        fi
+    fi
+    final_ids=""
+    for id in $selected_ids; do
+        case " $excluded_ids " in
+            *" $id "*) ;;                              # excluded — drop
+            *) final_ids="$final_ids $id" ;;
+        esac
+    done
+    if [ -z "$final_ids" ]; then
+        echo "units: selection is empty after exclusions" >&2
+        exit 2
+    fi
+
+    new_ids=(); new_names=(); new_files=(); new_disabled=(); new_preamble_tags=()
+    for i in "${!UNIT_IDS[@]}"; do
+        case " $final_ids " in *" ${UNIT_IDS[$i]} "*)
+            new_ids+=("${UNIT_IDS[$i]}")
+            new_names+=("${UNIT_NAMES[$i]}")
+            new_files+=("${UNIT_FILES[$i]}")
+            new_disabled+=("${UNIT_DISABLED[$i]}")
+            new_preamble_tags+=("${UNIT_PREAMBLE_TAGS[$i]}")
+            ;;
+        esac
+    done
+    UNIT_IDS=("${new_ids[@]}")
+    UNIT_NAMES=("${new_names[@]}")
+    UNIT_FILES=("${new_files[@]}")
+    UNIT_DISABLED=("${new_disabled[@]}")
+    UNIT_PREAMBLE_TAGS=("${new_preamble_tags[@]}")
+fi
+
+if [ "$list_units_mode" = "true" ]; then
+    print_unit_list
+    exit 0
+fi
+
+# Count enabled units so a bare --step LINE works whenever exactly one
+# enabled unit will run, even if the discovery list contains disabled ones.
+enabled_count=0
+sole_enabled_id=""
+for _i in "${!UNIT_IDS[@]}"; do
+    if [ "${UNIT_DISABLED[$_i]}" = "false" ]; then
+        enabled_count=$((enabled_count + 1))
+        sole_enabled_id="${UNIT_IDS[$_i]}"
+    fi
+done
+
+# Validate --step now that we know which units will run.
+if [ -n "$step_line" ]; then
+    if [ -z "$step_unit" ]; then
+        if [ "$enabled_count" -ne 1 ]; then
+            echo "step: expected ID,LINE (multiple test units present)" >&2
+            usage
+            exit 2
+        fi
+        step_unit="$sole_enabled_id"
+    else
+        if resolved=$(unit_resolve "$step_unit"); then
+            ridx=$(unit_index "$resolved")
+            if [ "${UNIT_DISABLED[$ridx]}" = "true" ]; then
+                echo "step: test unit [$step_unit] is disabled" >&2
+                usage
+                exit 2
+            fi
+            step_unit="$resolved"
+        else
+            echo "step: unknown test unit [$step_unit]" >&2
+            usage
+            exit 2
+        fi
+    fi
+fi
+
+for _i in "${!UNIT_IDS[@]}"; do
+    if [ "${UNIT_DISABLED[$_i]}" = "true" ]; then
+        continue
+    fi
+    CURRENT_UNIT_ID="${UNIT_IDS[$_i]}"
+    CURRENT_UNIT_NAME="${UNIT_NAMES[$_i]}"
+    CURRENT_UNIT_INDEX="$_i"
+    CURRENT_UNIT_PREAMBLE_TAG="${UNIT_PREAMBLE_TAGS[$_i]}"
+    # Reset to the baseline so a preamble's timeout override is scoped to its
+    # own unit and doesn't leak into the next.
+    unitt_timeout="$unitt_timeout_baseline"
+    if [ "$((10#$CURRENT_UNIT_PREAMBLE_TAG))" -ne 0 ]; then
+        _pre="unit_test/preamble_${CURRENT_UNIT_PREAMBLE_TAG}.sh"
+        if [ -f "$_pre" ]; then
+            source "$_pre"
+        else
+            echo "ERROR: preamble [$_pre] not found for unit [$CURRENT_UNIT_ID]" >&2
+            exit 2
+        fi
+    fi
+    source "${UNIT_FILES[$_i]}"
+done
+
+#------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+echo
+echo "Done."
+echo "SUMMARY: $pass_count passed, $fail_count failed"
+echo
+[ "$fail_count" -gt 0 ] && exit 1
+exit 0
+
+
+
