@@ -1,0 +1,35 @@
+⏺ Yes — and it's a real anomaly, not just a rendering quirk. Two commits have timestamps that predate their own ancestors by about a year.
+
+  Here's the true DAG (parent → child), oldest at top, with author/commit dates:
+
+  ┌────────────────┬─────────┬──────────────────┬─────────────────────────────────────────┐
+  │       #        │ commit  │       date       │                 subject                 │
+  ├────────────────┼─────────┼──────────────────┼─────────────────────────────────────────┤
+  │ 1 (root, v0.0) │ f940eaf │ 2021-01-29 20:46 │ Add versions script.                    │
+  ├────────────────┼─────────┼──────────────────┼─────────────────────────────────────────┤
+  │ 2              │ 3e345b6 │ 2021-01-29 20:48 │ Bug fixes. Remove code…                 │
+  ├────────────────┼─────────┼──────────────────┼─────────────────────────────────────────┤
+  │ 3              │ c4d08d6 │ 2021-01-29 20:50 │ move Version file to version package.   │
+  ├────────────────┼─────────┼──────────────────┼─────────────────────────────────────────┤
+  │ 4              │ 989c6e3 │ 2020-01-29 12:56 │ Update version.sh to copy Version file… │
+  ├────────────────┼─────────┼──────────────────┼─────────────────────────────────────────┤
+  │ 5              │ a21feba │ 2020-02-04 12:18 │ Fix versions to use obfuscated jars.    │
+  ├────────────────┼─────────┼──────────────────┼─────────────────────────────────────────┤
+  │ 6              │ e2d3bd6 │ 2021-01-29 20:53 │ Bug fix for make clean…                 │
+  └────────────────┴─────────┴──────────────────┴─────────────────────────────────────────┘
+
+  Commits #4 and #5 are dated January–February 2020, but their parent (#3) and child (#6) are both dated January 2021 — roughly 11 months later. A commit can't legitimately be authored before its parent; these two
+  timestamps violate ancestry. Almost certainly the machine's clock was wrong (set to 2020) when those two were committed, or the surrounding commits were re-dated by a later rebase/cherry-pick while these kept their
+  stale dates.
+  
+  Why the screenshot looks scrambled: GitLens sorts the graph by commit date, not topologically. So the two 2020-dated commits sink to the bottom (they look "oldest"), and v0.0 "Add versions script" — which is actually
+  the root commit (git rev-list --max-parents=0 confirms it has no parent) — floats up into the middle. The visual order no longer matches the parent chain.
+
+  So the two strange things, concretely:
+  1. The v0.0 "Add versions script" commit is the repo root, yet appears mid-graph rather than at the bottom.
+  2. That's caused by 989c6e3 and a21feba carrying 2020 dates sandwiched between 2021 ancestors and descendants.
+  
+  Nothing is corrupted — the DAG is intact; only the dates are inconsistent. Fixing it would mean rewriting history (e.g. a git filter-repo/rebase --committer-date-is-author-date to correct those two timestamps), which
+  would change every commit hash from 989c6e3 onward and require a force-push since origin/master is in sync. I'd only do that on your say-so. Want me to, or leave it as a historical curiosity?
+
+

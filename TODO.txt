@@ -1,1 +1,0 @@
-- should throw an error if existing version (js) is malformed.

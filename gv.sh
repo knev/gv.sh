@@ -165,6 +165,13 @@ for JS_FILE in "${JS_FILES[@]}"; do
 
 	echo
 
+    # A present-but-malformed version is an error: bail rather than silently skip.
+    # (An absent version field / missing file yields an empty string and is left alone.)
+    if [ -n "$CURRENT_VERSION" ] && ! [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ ]]; then
+        echo "Error: malformed version \"$CURRENT_VERSION\" in $JS_FILE"
+        exit 1
+    fi
+
     if [ -n "$EXTRA_GIT_TAG" ]; then
         # If EXTRA_GIT_TAG is not empty, update to NEWVER-EXTRA_GIT_TAG
         NEWVER_DASH_TAG="$NEWVER-$EXTRA_GIT_TAG"

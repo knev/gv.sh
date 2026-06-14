@@ -56,6 +56,16 @@ mk_package_json() {
 EOF
 }
 
+mk_package_json_malformed() {
+    cat > ./package.json << 'EOF'
+{
+  "name": "app-subverse-map",
+  "version": "not-a-version",
+  "license": "MIT"
+}
+EOF
+}
+
 mk_nsi() {
     cat > "./$_NSI_FILE" << 'EOF'
 ; Script for installing an application with DLL dependencies in AppData\Local\IOI\tx-Decentraland
@@ -131,6 +141,11 @@ run_test "$GV_BIN --js" "0" "$(escape_expected "package.json updated:")"
 run_test "grep '\"version\"' ./package.json" "0" "\"version\".*\"[0-9]+\.[0-9]+\.[0-9]+\""
 
 run_test "$GV_BIN --js --tag api" "0" "$(escape_expected "-api.6")"
+
+# Malformed existing version in package.json: must error out, not silently skip
+cleanup
+mk_package_json_malformed
+run_test "$GV_BIN --js" "1" "$(escape_expected "malformed version")"
 
 #----------------------------------------------------------------------
 # Group 4: --nsi
