@@ -21,9 +21,11 @@ nothing:
 # 	@echo
 # 	@./version.sh --print
 
+gv:
+	./${GV} --bash ./${GV}
+
 install:
 	@cp -v ./${GV} ${TARGET}/bin/${BIN}
-	./${GV} --bash ${TARGET}/bin/${BIN}
 	chmod +x ${TARGET}/bin/${BIN}
 ifneq (,$(filter MINGW% MSYS% CYGWIN%,$(UNAME_S)))
 	@printf '@echo off\r\n"C:\\Program Files\\Git\\bin\\bash.exe" "%%~dp0${BIN}" %%*\r\n' > ${TARGET}/bin/${BIN}.cmd
