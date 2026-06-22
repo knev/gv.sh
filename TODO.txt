@@ -1,0 +1,2 @@
+
+when an api tag already exists and --tag api is not specified, --js refuses to generate a version, but --antora does.
