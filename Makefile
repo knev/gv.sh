@@ -2,8 +2,21 @@
 # JDK8 := $(shell /usr/libexec/java_home -v 1.8)
 GV=gv.sh
 BIN=gv
-TARGET := $(shell bash -c 'echo $$HOME')
 UNAME_S := $(shell uname -s)
+
+# Resolve the install root as a POSIX path. On Windows $HOME differs between Git
+# Bash (/c/Users/<user>) and the MSYS2 shell (/home/<user>), so `make install`
+# could land in two different places depending on which shell runs make.
+# %USERPROFILE% is the same Windows value in both runtimes; cygpath turns it into
+# a POSIX path. macOS/Linux: $HOME is already correct.
+ifneq (,$(filter MINGW% MSYS% CYGWIN%,$(UNAME_S)))
+ifeq (,$(USERPROFILE))
+$(error %USERPROFILE% is empty -- run native make from Git Bash, or msys64 make from the MSYS2 shell; do NOT run msys64 make from Git Bash (the two msys-2.0.dll runtimes mismarshal the environment))
+endif
+TARGET := $(shell cygpath -u "$$USERPROFILE")
+else
+TARGET := $(HOME)
+endif
 
 .PHONY: nothing install obf repo clean
 
@@ -32,7 +45,7 @@ install:
 	@cp -v ./${GV} ${TARGET}/bin/${BIN}
 	chmod +x ${TARGET}/bin/${BIN}
 ifneq (,$(filter MINGW% MSYS% CYGWIN%,$(UNAME_S)))
-	@printf '@echo off\r\n"C:\\Program Files\\Git\\bin\\bash.exe" "%%~dp0${BIN}" %%*\r\n' > ${TARGET}/bin/${BIN}.cmd
+	@printf '%s\r\n' '@echo off' '"C:\Program Files\Git\bin\bash.exe" "%~dp0${BIN}" %*' > ${TARGET}/bin/${BIN}.cmd
 	@echo "created ${TARGET}/bin/${BIN}.cmd"
 endif
 
