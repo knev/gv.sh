@@ -36,6 +36,15 @@ error_exit() {
 	exit 1
 }
 
+# Refuse to overwrite a tagged version with an untagged one (when no --tag is given).
+# $1 = file (for the message), $2 = the file's current version string.
+# Exits 1 if $2 carries a "-<tag>" suffix; no-op (returns) otherwise.
+refuse_if_tagged() {
+	[[ "$2" =~ ^[0-9]+\.[0-9]+\.[0-9]+-.+ ]] || return 0
+	echo "Error: $1 has a tagged version \"$2\"; refusing to replace it with untagged \"$NEWVER\". Re-run with --tag TAG."
+	exit 1
+}
+
 FILE=./src/se/mitm/version/Version.java
 
 PRINT=1
@@ -205,8 +214,12 @@ for JS_FILE in "${JS_FILES[@]}"; do
 
     		echo "$JS_FILE updated: {"
 			echo -e "$(grep -m1 version "$JS_FILE")\n}"
+        else
+            # Current version carries a tag (e.g. 0.3.3-api.4) but no --tag was given:
+            # refuse to drop it. (--js runs before the other switches, so this aborts
+            # the whole invocation rather than desyncing the version files.)
+            refuse_if_tagged "$JS_FILE" "$CURRENT_VERSION"
         fi
-        # If current version has an extra tag, do nothing
     fi
 done
 
@@ -277,6 +290,17 @@ for VERSION_H in "${VS_FILES[@]}"; do
         SUFFIX="-$TAG"
     else
         SUFFIX=""
+    fi
+
+    # Refuse to drop an existing tag (a non-empty VERSION_SUFFIX) when no --tag is given.
+    if [ -z "$EXTRA_GIT_TAG" ] && [ -z "$TAG" ]; then
+        CURRENT_SUFFIX=$(grep -m1 -E "^#define[[:space:]]+VERSION_SUFFIX" "$VERSION_H" | sed -E 's/.*VERSION_SUFFIX[[:space:]]+"([^"]*)".*/\1/')
+        if [ -n "$CURRENT_SUFFIX" ]; then
+            CUR_MAJOR=$(grep -m1 -E "^#define[[:space:]]+VERSION_MAJOR" "$VERSION_H" | grep -oE '[0-9]+' | head -1)
+            CUR_MINOR=$(grep -m1 -E "^#define[[:space:]]+VERSION_MINOR" "$VERSION_H" | grep -oE '[0-9]+' | head -1)
+            CUR_PATCH=$(grep -m1 -E "^#define[[:space:]]+VERSION_PATCH" "$VERSION_H" | grep -oE '[0-9]+' | head -1)
+            refuse_if_tagged "$VERSION_H" "${CUR_MAJOR}.${CUR_MINOR}.${CUR_PATCH}${CURRENT_SUFFIX}"
+        fi
     fi
 
     # Backup first (good practice)
@@ -350,6 +374,12 @@ for NSI_FILE in "${NSI_FILES[@]}"; do
         FULL_VERSION="${FULL_VERSION}-${TAG}"
     fi
 
+    # Refuse to drop an existing tag when no --tag is given.
+    if [ -z "$EXTRA_GIT_TAG" ] && [ -z "$TAG" ]; then
+        CURRENT_VERSION=$(grep -m1 -iE "^[[:space:]]*![[:space:]]*define[[:space:]]+APP_VERSION" "$NSI_FILE" | sed -E 's/.*APP_VERSION[[:space:]]*"([^"]*)".*/\1/')
+        refuse_if_tagged "$NSI_FILE" "$CURRENT_VERSION"
+    fi
+
 	echo
     echo "Updating ${NSI_FILE} APP_VERSION [${FULL_VERSION}]"
 
@@ -400,6 +430,12 @@ for ANTORA_FILE in "${ANTORA_FILES[@]}"; do
         FULL_VERSION="${FULL_VERSION}-${TAG}"
     fi
 
+    # Refuse to drop an existing tag when no --tag is given.
+    if [ -z "$EXTRA_GIT_TAG" ] && [ -z "$TAG" ]; then
+        CURRENT_VERSION=$(grep -m1 "^version:" "$ANTORA_FILE" | sed -E "s/^version:[[:space:]]*['\"]?([^'\"]*)['\"]?.*/\1/")
+        refuse_if_tagged "$ANTORA_FILE" "$CURRENT_VERSION"
+    fi
+
     echo
     echo "Updating ${ANTORA_FILE} version [${FULL_VERSION}]"
 
@@ -435,6 +471,12 @@ for BASH_FILE in "${BASH_FILES[@]}"; do
     if ! grep -qE "^[[:space:]]*VERSION=" "$BASH_FILE"; then
         echo "Error: no VERSION= assignment found in $BASH_FILE"
         exit 1
+    fi
+
+    # Refuse to drop an existing tag when no --tag is given.
+    if [ -z "$EXTRA_GIT_TAG" ] && [ -z "$TAG" ]; then
+        CURRENT_VERSION=$(grep -m1 -E "^[[:space:]]*VERSION=" "$BASH_FILE" | sed -E "s/^[[:space:]]*VERSION=[\"']?([^\"']*)[\"']?.*/\1/")
+        refuse_if_tagged "$BASH_FILE" "$CURRENT_VERSION"
     fi
 
     echo
