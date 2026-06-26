@@ -21,6 +21,10 @@ nothing:
 # 	@echo
 # 	@./version.sh --print
 
+# Run this from a self-consistent shell (one POSIX runtime): the MSYS2 shell on
+# Windows, or a normal shell on macOS/Linux. Do NOT run it from Git Bash with
+# msys64 `make` on PATH -- mixing the two msys-2.0.dll runtimes corrupts sed's
+# regex backreferences and garbles the stamped version.
 gv:
 	./${GV} --bash ./${GV}
 

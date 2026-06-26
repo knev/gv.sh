@@ -24,7 +24,7 @@ If `--tag TAG` is passed, `gv` additionally looks up the most recent tag matchin
 ## Usage
 
 ```
-gv [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--bash PATH]... [--agv [--fix]] [--tag TAG] [--version] [-h | --help]
+gv [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--bash PATH]... [--agv [--fix]] [--tag TAG] [-v | --version] [-h | --help]
 ```
 
 ### Target switches
@@ -67,7 +67,7 @@ Not supported: `--js PATH PATH PATH` (subsequent bare paths are parsed as unknow
 | `--agv --fix`    | Rewrite `INFOPLIST_FILE = "$(SRCROOT)/…"` to `INFOPLIST_FILE = "…"` in the `.xcodeproj/project.pbxproj`. |
 | `--agv -h`       | Print setup notes for AGV instead of running it.                                                   |
 | `--print`        | Print the computed git tag (on by default).                                                        |
-| `--version`      | Print gv's own version (the `VERSION=` line in `gv.sh`) as `vX.Y.Z`; falls back to `v0.0.0` if unset. Stamp it with `gv --bash gv.sh`. |
+| `-v`, `--version` | Print gv's own version (the `VERSION=` line in `gv.sh`) as `vX.Y.Z`; falls back to `v0.0.0` if unset. Stamp it with `gv --bash gv.sh`. |
 | `-h`, `--help`   | Print usage.                                                                                       |
 
 ## Examples

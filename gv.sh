@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION="0.6.51"
+VERSION="0.5.56"
 
 # https://stackoverflow.com/questions/59895/how-to-get-the-source-directory-of-a-bash-script-from-within-the-script-itself
 # PWD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
@@ -8,7 +8,7 @@ VERSION="0.6.51"
 # PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-	echo "usage: $(basename $0) [[--js|--vs|--nsi|--antora] [PATH]]... [--bash PATH]... [--agv [--fix]] [--tag TAG] [--version] [-h | --help]"
+	echo "usage: $(basename $0) [[--js|--vs|--nsi|--antora] [PATH]]... [--bash PATH]... [--agv [--fix]] [--tag TAG] [-v | --version] [-h | --help]"
 	echo
 	echo "Default PATH (when omitted):"
 	echo "    --js       package.json"
@@ -118,7 +118,7 @@ while [ "$1" != "" ]; do
 		--out )					shift
 								OUT=$1
 								;;
-		--version )				echo "v${VERSION:-0.0.0}"
+		-v | --version )		echo "v${VERSION:-0.0.0}"
 								exit 0
 								;;
 		-h | --help )			(( !$APPLE_GENERIC_VER )) && { usage && exit 0; }
