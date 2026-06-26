@@ -5,10 +5,12 @@ A git-tag-driven version bumper. Reads `git describe` on the current repo, compu
 ## Install
 
 ```sh
-make install
+./gv.sh --install-self
 ```
 
-Installs `gv.sh` into your `PATH` as `gv` (see `Makefile`).
+Copies `gv.sh` into your `~/bin` as `gv`. On Windows / Git Bash it also writes a
+`gv.cmd` shim so cmd.exe and PowerShell can run it too. `gv` self-installs —
+there is no Makefile.
 
 ## How the version is computed
 
@@ -24,7 +26,7 @@ If `--tag TAG` is passed, `gv` additionally looks up the most recent tag matchin
 ## Usage
 
 ```
-gv [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--bash PATH]... [--agv [--fix]] [--tag TAG] [-v | --version] [-h | --help]
+gv [--js [PATH]]... [--vs [PATH]]... [--nsi [PATH]]... [--antora [PATH]]... [--bash PATH]... [--agv [--fix]] [--tag TAG] [--install-self] [-v | --version] [-h | --help]
 ```
 
 ### Target switches
@@ -66,6 +68,7 @@ Not supported: `--js PATH PATH PATH` (subsequent bare paths are parsed as unknow
 | `--agv`          | Apple Generic Versioning: runs `agvtool new-marketing-version` and `agvtool next-version -all`.    |
 | `--agv --fix`    | Rewrite `INFOPLIST_FILE = "$(SRCROOT)/…"` to `INFOPLIST_FILE = "…"` in the `.xcodeproj/project.pbxproj`. |
 | `--agv -h`       | Print setup notes for AGV instead of running it.                                                   |
+| `--install-self` | Self-install: copy this script into `~/bin` as `gv` (`$HOME/bin` on macOS/Linux, `%USERPROFILE%\bin` on Windows), `chmod +x`, and on Windows write a `gv.cmd` shim. Idempotent. |
 | `--print`        | Print the computed git tag (on by default).                                                        |
 | `-v`, `--version` | Print gv's own version (the `VERSION=` line in `gv.sh`) as `vX.Y.Z`; falls back to `v0.0.0` if unset. Stamp it with `gv --bash gv.sh`. |
 | `-h`, `--help`   | Print usage.                                                                                       |

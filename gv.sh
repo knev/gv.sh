@@ -45,6 +45,62 @@ refuse_if_tagged() {
 	exit 1
 }
 
+# Install this script as `gv` into the user's bin: copy self, mark executable,
+# and on Windows write a .cmd shim so cmd.exe/PowerShell can launch it too. This
+# is the single, authoritative source of truth for installation (no Makefile).
+install_self() {
+	local uname_s src dir bin_dir
+	uname_s="$(uname -s)"
+
+	# Resolve this script's own absolute path (following any symlinks).
+	src="${BASH_SOURCE[0]}"
+	while [ -h "$src" ]; do
+		dir="$(cd -P "$(dirname "$src")" && pwd)"
+		src="$(readlink "$src")"
+		[[ "$src" != /* ]] && src="$dir/$src"
+	done
+	src="$(cd -P "$(dirname "$src")" && pwd)/$(basename "$src")"
+
+	# Resolve the install root as a POSIX path. On Windows %USERPROFILE% is the
+	# stable Windows home in both Git Bash and the MSYS2 shell (unlike $HOME,
+	# which differs between them); cygpath converts it to a POSIX path.
+	case "$uname_s" in
+		MINGW*|MSYS*|CYGWIN* )
+			if [ -z "$USERPROFILE" ]; then
+				echo "Error: %USERPROFILE% is empty; cannot resolve the install dir (run from Git Bash, or the MSYS2 shell -- not msys2 make from Git Bash)." >&2
+				return 1
+			fi
+			bin_dir="$(cygpath -u "$USERPROFILE")/bin"
+			;;
+		* )
+			bin_dir="$HOME/bin"
+			;;
+	esac
+
+	mkdir -p "$bin_dir" || return 1
+
+	if [ "$src" -ef "$bin_dir/gv" ]; then
+		echo "Already in place: $bin_dir/gv (skipping copy)"
+	else
+		cp -v "$src" "$bin_dir/gv" || return 1
+		chmod +x "$bin_dir/gv"
+	fi
+
+	# Windows: cmd.exe/PowerShell can't run the extensionless bash script, so
+	# write a .cmd shim that re-launches it under Git Bash. The path lives in a
+	# printf %s *argument* (not the format string), so no backslash is treated
+	# as an escape -- this is what kept native `make` from mangling it.
+	case "$uname_s" in
+		MINGW*|MSYS*|CYGWIN* )
+			printf '%s\r\n' '@echo off' '"C:\Program Files\Git\bin\bash.exe" "%~dp0gv" %*' > "$bin_dir/gv.cmd"
+			echo "created $bin_dir/gv.cmd"
+			;;
+	esac
+
+	echo "Installed: $bin_dir/gv"
+	return 0
+}
+
 FILE=./src/se/mitm/version/Version.java
 
 PRINT=1
@@ -126,6 +182,9 @@ while [ "$1" != "" ]; do
 								;;
 		--out )					shift
 								OUT=$1
+								;;
+		--install-self )		install_self
+								exit $?
 								;;
 		-v | --version )		echo "v${VERSION:-0.0.0}"
 								exit 0
