@@ -133,7 +133,7 @@ cleanup
 run_test "$GV_BIN --vs" "1" "Error: version.h not found"
 
 mk_version_h
-run_test "$GV_BIN --vs" "0" "version.h updated:"
+run_test "$GV_BIN --vs" "0" "Updating: ./version.h"
 run_test "grep 'VERSION_PATCH' ./version.h" "0" "VERSION_PATCH[[:space:]]+[0-9]+"
 
 cleanup
@@ -149,7 +149,7 @@ echo "# Group 3: --js"
 cleanup
 
 mk_package_json
-run_test "$GV_BIN --js" "0" "$(escape_expected "package.json updated:")"
+run_test "$GV_BIN --js" "0" "$(escape_expected "Updating: package.json")"
 run_test "grep '\"version\"' ./package.json" "0" "\"version\".*\"[0-9]+\.[0-9]+\.[0-9]+\""
 
 run_test "$GV_BIN --js --tag api" "0" "$(escape_expected "-api.6")"
@@ -183,7 +183,7 @@ cleanup
 run_test "$GV_BIN --antora" "1" "Error: antora.yml not found"
 
 mk_antora
-run_test "$GV_BIN --antora" "0" "Updating.*antora.yml"
+run_test "$GV_BIN --antora" "0" "Updating:.*antora.yml"
 
 run_test "grep '^version:' ./antora-docs/antora.yml" "0" "version:.*[0-9]+\.[0-9]+\.[0-9]+"
 
@@ -203,7 +203,7 @@ cleanup
 # only VS fires, JS must NOT fire
 mk_package_json
 mk_version_h
-run_test "$GV_BIN --vs" "0" "$(escape_expected "package.json updated:")" "true"
+run_test "$GV_BIN --vs" "0" "$(escape_expected "Updating: package.json:")" "true"
 
 #----------------------------------------------------------------------
 # Group 7: multiple switches together
@@ -216,13 +216,13 @@ cleanup
 # --vs + --nsi: both files updated in one run
 mk_version_h
 mk_nsi
-run_test "$GV_BIN --vs --nsi" "0" "version.h updated:.*Updating gv.sh.nsi"
+run_test "$GV_BIN --vs --nsi" "0" "Updating: ./version.h.*Updating: gv.nsi"
 cleanup
 
 # --js + --antora: both files updated in one run
 mk_package_json
 mk_antora
-run_test "$GV_BIN --js --antora" "0" "$(escape_expected "package.json updated:.*Updating.*antora.yml")"
+run_test "$GV_BIN --js --antora" "0" "$(escape_expected "Updating: package.json.*Updating:.*antora.yml")"
 cleanup
 
 # --vs + --nsi: when version.h is missing, exits before touching the .nsi file
@@ -276,7 +276,7 @@ run_test "grep '!define APP_VERSION' ./$_NSI_FILE" "0" "APP_VERSION.*\-api\.6"
 cleanup
 
 mk_antora
-run_test "$GV_BIN --antora --tag api" "0" "Updating.*antora.yml"
+run_test "$GV_BIN --antora --tag api" "0" "Updating:.*antora.yml"
 run_test "grep '^version:' ./antora-docs/antora.yml" "0" "\-api\.6"
 
 #----------------------------------------------------------------------
@@ -299,7 +299,7 @@ cat > ./src/include/version.h << 'EOF'
 #define VERSION_BUILD     0
 #define VERSION_SUFFIX    ""
 EOF
-run_test "$GV_BIN --vs src/include/version.h" "0" "src/include/version.h updated:"
+run_test "$GV_BIN --vs src/include/version.h" "0" "Updating: src/include/version.h"
 run_test "grep 'VERSION_PATCH' ./src/include/version.h" "0" "VERSION_PATCH[[:space:]]+[0-9]+"
 # Default ./version.h should NOT be created/touched
 run_test "ls version.h 2>&1" "1" "No such file"
@@ -328,7 +328,7 @@ cat > ./release/build/package.json << 'EOF'
   "license": "MIT"
 }
 EOF
-run_test "$GV_BIN --js release/build/package.json" "0" "$(escape_expected "package.json updated:")"
+run_test "$GV_BIN --js release/build/package.json" "0" "$(escape_expected "Updating: release/build/package.json")"
 run_test "grep '\"version\"' ./release/build/package.json" "0" "\"version\".*\"[0-9]+\.[0-9]+\.[0-9]+\""
 # Default package.json should NOT be created/touched
 run_test "ls package.json 2>&1" "1" "No such file"
@@ -343,7 +343,7 @@ cat > ./alt/pkg.json << 'EOF'
   "license": "MIT"
 }
 EOF
-run_test "$GV_BIN --js alt/pkg.json --tag api" "0" "$(escape_expected "pkg.json updated:")"
+run_test "$GV_BIN --js alt/pkg.json --tag api" "0" "$(escape_expected "Updating: alt/pkg.json")"
 run_test "grep '\"version\"' ./alt/pkg.json" "0" "\-api"
 rm -rf ./alt
 
@@ -377,7 +377,7 @@ name: IOI
 title: IOI
 version: "0.3"
 EOF
-run_test "$GV_BIN --antora docs/site/antora.yml" "0" "Updating.*antora.yml"
+run_test "$GV_BIN --antora docs/site/antora.yml" "0" "Updating:.*antora.yml"
 run_test "grep '^version:' ./docs/site/antora.yml" "0" "version:.*[0-9]+\.[0-9]+\.[0-9]+"
 rm -rf ./docs
 
@@ -423,7 +423,7 @@ name: combo
 title: combo
 version: "0.0"
 EOF
-run_test "$GV_BIN --js sub/js/package.json --vs sub/vs/version.h --nsi sub/nsi/app.nsi --antora sub/docs/antora.yml --tag rc4" "0" "package.json updated:.*sub/vs/version.h updated:.*Updating sub/nsi/app.nsi.*Updating sub/docs/antora.yml"
+run_test "$GV_BIN --js sub/js/package.json --vs sub/vs/version.h --nsi sub/nsi/app.nsi --antora sub/docs/antora.yml --tag rc4" "0" "Updating: sub/js/package.json.*Updating: sub/vs/version.h.*Updating: sub/nsi/app.nsi.*Updating: sub/docs/antora.yml"
 run_test "grep 'VERSION_SUFFIX' ./sub/vs/version.h" "0" "\-rc4"
 run_test "grep '!define APP_VERSION' ./sub/nsi/app.nsi" "0" "\-rc4"
 run_test "grep '^version:' ./sub/docs/antora.yml" "0" "\-rc4"
@@ -447,7 +447,7 @@ cat > ./packages/entropy-cpp/package.json << 'EOF'
   "license": "MIT"
 }
 EOF
-run_test "$GV_BIN --js --js packages/entropy-cpp/package.json" "0" "package.json updated:.*packages/entropy-cpp/package.json updated:"
+run_test "$GV_BIN --js --js packages/entropy-cpp/package.json" "0" "Updating: package.json.*Updating: packages/entropy-cpp/package.json"
 run_test "grep '\"version\"' ./package.json" "0" "\"version\".*\"[0-9]+\.[0-9]+\.[0-9]+\""
 run_test "grep '\"version\"' ./packages/entropy-cpp/package.json" "0" "\"version\".*\"[0-9]+\.[0-9]+\.[0-9]+\""
 rm -rf ./packages
@@ -464,7 +464,7 @@ cat > ./packages/entropy-cpp/package.json << 'EOF'
   "license": "MIT"
 }
 EOF
-run_test "$GV_BIN --js --js packages/entropy-cpp/package.json --antora" "0" "package.json updated:.*packages/entropy-cpp/package.json updated:.*Updating.*antora.yml"
+run_test "$GV_BIN --js --js packages/entropy-cpp/package.json --antora" "0" "Updating: package.json.*Updating: packages/entropy-cpp/package.json.*Updating:.*antora.yml"
 rm -rf ./packages
 cleanup
 
@@ -478,7 +478,7 @@ cat > ./other/version.h << 'EOF'
 #define VERSION_BUILD     0
 #define VERSION_SUFFIX    ""
 EOF
-run_test "$GV_BIN --vs --vs other/version.h" "0" "version.h updated:.*other/version.h updated:"
+run_test "$GV_BIN --vs --vs other/version.h" "0" "Updating: ./version.h.*Updating: other/version.h"
 rm -rf ./other
 cleanup
 
@@ -492,7 +492,7 @@ cat > ./b/second.nsi << 'EOF'
 !define APP_NAME "Second"
 !define APP_VERSION "0.0.1"
 EOF
-run_test "$GV_BIN --nsi a/first.nsi --nsi b/second.nsi" "0" "Updating a/first.nsi.*Updating b/second.nsi"
+run_test "$GV_BIN --nsi a/first.nsi --nsi b/second.nsi" "0" "Updating: a/first.nsi.*Updating: b/second.nsi"
 run_test "grep '!define APP_VERSION' ./a/first.nsi" "0" "APP_VERSION.*\"[0-9]+\.[0-9]+\.[0-9]+\""
 run_test "grep '!define APP_VERSION' ./b/second.nsi" "0" "APP_VERSION.*\"[0-9]+\.[0-9]+\.[0-9]+\""
 rm -rf ./a ./b
@@ -506,7 +506,7 @@ name: site
 title: site
 version: "0.3"
 EOF
-run_test "$GV_BIN --antora --antora docs/site/antora.yml --tag rc5" "0" "Updating.*antora-docs/antora.yml.*Updating docs/site/antora.yml"
+run_test "$GV_BIN --antora --antora docs/site/antora.yml --tag rc5" "0" "Updating: ./antora-docs/antora.yml.*Updating: docs/site/antora.yml"
 run_test "grep '^version:' ./antora-docs/antora.yml" "0" "\-rc5"
 run_test "grep '^version:' ./docs/site/antora.yml" "0" "\-rc5"
 rm -rf ./docs
@@ -528,7 +528,7 @@ run_test "$GV_BIN --bash does/not/exist.sh" "1" "bash script not found"
 
 # --bash updates the VERSION= assignment to plain semver
 mk_bash_script
-run_test "$GV_BIN --bash ver.sh" "0" "Updating ver.sh VERSION"
+run_test "$GV_BIN --bash ver.sh" "0" "Updating: ver.sh"
 run_test "grep '^VERSION=' ./ver.sh" "0" "VERSION=\"[0-9]+\.[0-9]+\.[0-9]+\""
 cleanup
 
@@ -540,7 +540,7 @@ cleanup
 
 # --bash on a bare (unquoted) assignment: matched and rewritten quoted
 printf '#!/bin/bash\nVERSION=0.0.1\n\necho hi\n' > ./bare.sh
-run_test "$GV_BIN --bash bare.sh" "0" "Updating bare.sh VERSION"
+run_test "$GV_BIN --bash bare.sh" "0" "Updating: bare.sh"
 run_test "grep '^VERSION=' ./bare.sh" "0" "VERSION=\"[0-9]+\.[0-9]+\.[0-9]+\""
 cleanup
 

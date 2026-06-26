@@ -8,7 +8,7 @@ VERSION="0.5.56"
 # PWD=$(cd "$(dirname "$0")" && pwd)
 
 usage() {
-	echo "usage: $(basename $0) [[--js|--vs|--nsi|--antora] [PATH]]... [--bash PATH]... [--agv [--fix]] [--tag TAG] [-v | --version] [-h | --help]"
+	echo "usage: $(basename $0) [[--js|--vs|--nsi|--antora] [PATH]]... [--bash PATH] [--agv [--fix]] [--tag TAG] [-v | --version] [-h | --help]"
 	echo
 	echo "Default PATH (when omitted):"
 	echo "    --js       package.json"
@@ -204,7 +204,7 @@ for JS_FILE in "${JS_FILES[@]}"; do
         NEWVER_DASH_TAG="$NEWVER-$EXTRA_GIT_TAG"
         sed -E 's/^([[:space:]]*"version"[[:space:]]*:[[:space:]]*")[0-9]+\.[0-9]+\.[0-9]+(-[^"]*)?("[[:space:]]*,[[:space:]]*)$/\1'"$NEWVER_DASH_TAG"'\3/' "$JS_FILE" > "$JS_FILE.tmp" && mv "$JS_FILE.tmp" "$JS_FILE"
 
-		echo "$JS_FILE updated: {"
+		echo "Updating: $JS_FILE {"
 		echo -e "$(grep -m1 version "$JS_FILE")\n}"
     else
         # If EXTRA_GIT_TAG is empty, check for extra tag in current version
@@ -212,7 +212,7 @@ for JS_FILE in "${JS_FILES[@]}"; do
             # No extra tag in current version, update to NEWVER
             sed -E 's/^([[:space:]]*"version"[[:space:]]*:[[:space:]]*")[0-9]+\.[0-9]+\.[0-9]+("[[:space:]]*,[[:space:]]*)$/\1'"$NEWVER"'\2/' "$JS_FILE" > "$JS_FILE.tmp" && mv "$JS_FILE.tmp" "$JS_FILE"
 
-    		echo "$JS_FILE updated: {"
+    		echo "Updating: $JS_FILE {"
 			echo -e "$(grep -m1 version "$JS_FILE")\n}"
         else
             # Current version carries a tag (e.g. 0.3.3-api.4) but no --tag was given:
@@ -304,7 +304,7 @@ for VERSION_H in "${VS_FILES[@]}"; do
     fi
 
     # Backup first (good practice)
-    echo "Updating ${VERSION_H} [$NEWVER${SUFFIX}]"
+    echo "Updating: ${VERSION_H} [$NEWVER${SUFFIX}]"
 
     cp "$VERSION_H" "$VERSION_H.bak" || exit 1
 
@@ -350,7 +350,6 @@ for VERSION_H in "${VS_FILES[@]}"; do
     # Clean up backup files created by sed -i.bak (macOS & some Linux)
     rm -f "${VERSION_H}.bak"
 
-    echo "${VERSION_H} updated:"
     grep -E 'VERSION_(MAJOR|MINOR|PATCH|BUILD|SUFFIX)' "$VERSION_H" | sed 's/^/  /'
 done
 
@@ -381,7 +380,7 @@ for NSI_FILE in "${NSI_FILES[@]}"; do
     fi
 
 	echo
-    echo "Updating ${NSI_FILE} APP_VERSION [${FULL_VERSION}]"
+    echo "Updating: ${NSI_FILE} [${FULL_VERSION}]"
 
     # Backup first
     cp "$NSI_FILE" "${NSI_FILE}.bak" || exit 1
@@ -437,7 +436,7 @@ for ANTORA_FILE in "${ANTORA_FILES[@]}"; do
     fi
 
     echo
-    echo "Updating ${ANTORA_FILE} version [${FULL_VERSION}]"
+    echo "Updating: ${ANTORA_FILE} [${FULL_VERSION}]"
 
     cp "$ANTORA_FILE" "${ANTORA_FILE}.bak" || exit 1
 
@@ -480,7 +479,7 @@ for BASH_FILE in "${BASH_FILES[@]}"; do
     fi
 
     echo
-    echo "Updating ${BASH_FILE} VERSION [${FULL_VERSION}]"
+    echo "Updating: ${BASH_FILE} [${FULL_VERSION}]"
 
     cp "$BASH_FILE" "${BASH_FILE}.bak" || exit 1
 
